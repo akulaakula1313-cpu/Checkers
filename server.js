@@ -8,12 +8,10 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
-// Важно: раздаем файлы прямо из корня, как у вас на GitHub
 app.use(express.static(__dirname));
 
 let rooms = {}; 
 
-// Создание начальной доски для русских шашек
 function createBoard() {
     let board = Array(8).fill(null).map(() => Array(8).fill(null));
     for (let r = 0; r < 8; r++) {
@@ -27,7 +25,6 @@ function createBoard() {
     return board;
 }
 
-// Генерация случайного 4-значного кода комнаты (Только ЦИФРЫ)
 function generateRoomCode() {
     const digits = '0123456789';
     let code = '';
@@ -37,7 +34,6 @@ function generateRoomCode() {
     return code;
 }
 
-// Сбор всех возможных взятий для правила "Обязательный бой"
 function getAllCaptures(board, color) {
     let captures = [];
     for (let r = 0; r < 8; r++) {
@@ -132,7 +128,6 @@ function getValidMove(board, from, to, color) {
     }
 }
 
-// Умная проверка окончания игры (когда закончились шашки или ходы)
 function checkGameOver(board, nextTurnColor) {
     let hasWhitePieces = false;
     let hasBlackPieces = false;
@@ -146,10 +141,9 @@ function checkGameOver(board, nextTurnColor) {
         }
     }
 
-    if (!hasWhitePieces) return 'b'; // Черные выиграли
-    if (!hasBlackPieces) return 'w'; // Бевые выиграли
+    if (!hasWhitePieces) return 'b'; 
+    if (!hasBlackPieces) return 'w'; 
 
-    // Проверка блокировки ходов (пат)
     let hasMoves = false;
     let captures = getAllCaptures(board, nextTurnColor);
     if (captures.length > 0) {
@@ -180,7 +174,6 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(message);
 
-            // Создание одиночной игры с Ботом
             if (data.type === 'START_GAME' && data.mode === 'bot') {
                 currentRoomCode = 'BOT_' + Math.random().toString(36).substring(2, 7);
                 myColor = 'w';
@@ -188,17 +181,15 @@ wss.on('connection', (ws) => {
                 ws.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'bot', board: rooms[currentRoomCode].board, turn: 'w' }));
             }
 
-            // Создание стола по цифровому коду
             if (data.type === 'CREATE_ROOM') {
                 let code = generateRoomCode();
-                while (rooms[code]) { code = generateRoomCode(); } // Против дубликатов
+                while (rooms[code]) { code = generateRoomCode(); } 
                 currentRoomCode = code;
                 myColor = 'w';
                 rooms[code] = { mode: 'pvp', board: createBoard(), turn: 'w', players: { w: ws, b: null }, rematchReady: {} };
                 ws.send(JSON.stringify({ type: 'WAITING', message: 'Код стола создан', code: code }));
             }
 
-            // Подключение к столу по 4 цифрам
             if (data.type === 'JOIN_ROOM') {
                 let code = data.roomCode;
                 if (rooms[code] && rooms[code].mode === 'pvp' && !rooms[code].players.b) {
@@ -212,7 +203,6 @@ wss.on('connection', (ws) => {
                 }
             }
 
-            // Логика перемещения и взятий
             if (data.type === 'MAKE_MOVE' && currentRoomCode) {
                 const room = rooms[currentRoomCode];
                 if (!room || room.turn !== myColor) return;
@@ -227,11 +217,9 @@ wss.on('connection', (ws) => {
 
                     if (validMove.jumped) room.board[validMove.jumped.r][validMove.jumped.c] = null;
 
-                    // Превращение в дамку
                     if (myColor === 'w' && to.r === 0) room.board[to.r][to.c] = 'W';
                     if (myColor === 'b' && to.r === 7) room.board[to.r][to.c] = 'B';
 
-                    // Проверка конца игры
                     let nextTurn = room.turn === 'w' ? 'b' : 'w';
                     let winner = checkGameOver(room.board, nextTurn);
 
@@ -245,10 +233,11 @@ wss.on('connection', (ws) => {
                             setTimeout(() => makeBotMove(room), 600);
                         }
                     }
+                } else {
+                    ws.send(JSON.stringify({ type: 'STATE_UPDATE', board: room.board, turn: room.turn, mode: room.mode }));
                 }
             }
 
-            // Обработка кнопки Реванш
             if (data.type === 'REQUEST_REMATCH' && currentRoomCode) {
                 const room = rooms[currentRoomCode];
                 if (!room) return;
@@ -259,7 +248,6 @@ wss.on('connection', (ws) => {
                     ws.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'bot', board: room.board, turn: 'w' }));
                 } else {
                     room.rematchReady[myColor] = true;
-                    // Если оба игрока нажали реванш за этим столом
                     if (room.rematchReady.w && room.rematchReady.b) {
                         room.board = createBoard();
                         room.turn = 'w';
@@ -274,22 +262,17 @@ wss.on('connection', (ws) => {
                     }
                 }
             }
-
-            // Пересылка сообщений чата (включая быстрые смайлики)
             if (data.type === 'CHAT_MSG' && currentRoomCode) {
                 const room = rooms[currentRoomCode];
                 if (!room || room.mode !== 'pvp') return;
-
                 const payload = JSON.stringify({
                     type: 'CHAT_MSG',
                     sender: myColor === 'w' ? 'Белый' : 'Черный',
                     text: data.text
                 });
-
                 if (room.players.w && room.players.w.readyState === WebSocket.OPEN) room.players.w.send(payload);
                 if (room.players.b && room.players.b.readyState === WebSocket.OPEN) room.players.b.send(payload);
             }
-
         } catch (e) { console.error(e); }
     });
 
@@ -318,7 +301,6 @@ function broadcastState(room) {
     if (room.players.b && room.players.b.readyState === WebSocket.OPEN) room.players.b.send(payload);
 }
 
-// Ход искусственного интеллекта (Бота)
 function makeBotMove(room) {
     let color = 'b';
     let moves = getAllCaptures(room.board, color);
@@ -349,4 +331,4 @@ function makeBotMove(room) {
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Сервер SANI GROUP запущен на порту ${PORT}`));
+server.listen(PORT, () => console.log(`Сервер ШАШКИ от SANI GROUP запущен на порту ${PORT}`));
