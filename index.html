@@ -2,36 +2,73 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Онлайн Шашки</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a1a; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        #menu, #game-container, #status { text-align: center; }
-        .btn { background: #e67e22; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; margin: 5px; font-weight: bold; transition: 0.2s; }
-        .btn:hover { background: #d35400; }
-        #board { display: grid; grid-template-columns: repeat(8, 60px); grid-template-rows: repeat(8, 60px); border: 4px solid #444; border-radius: 4px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); margin: 15px auto; }
-        .cell { width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-        .light { background: #f0d9b5; }
-        .dark { background: #b58863; }
-        .piece { width: 45px; height: 45px; border-radius: 50%; box-shadow: inset 0 2px 4px rgba(255,255,255,0.4), 0 3px 6px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; }
-        .white-piece { background: #ecf0f1; border: 2px solid #bdc3c7; color: #2c3e50; }
-        .black-piece { background: #2c3e50; border: 2px solid #1a252f; color: #ecf0f1; }
-        .selected { outline: 3px solid #f1c40f; outline-offset: -3px; }
-        .hidden { display: none !important; }
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: #1e293b;
+            --accent: #38bdf8;
+            --light-square: #f1f5f9;
+            --dark-square: #334155;
+            --highlight: rgba(56, 189, 248, 0.4);
+        }
+        body {
+            margin: 0;
+            background: var(--bg-color);
+            color: #f8fafc;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .container {
+            text-align: center;
+            background: var(--panel-bg);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            max-width: 480px;
+            width: 100%;
+        }
+        h1 { margin: 0 0 15px; font-size: 24px; color: var(--accent); }
+        #status { font-size: 15px; margin-bottom: 15px; min-height: 24px; color: #94a3b8; }
+        .menu-btn {
+            background: var(--accent);
+            color: #0f172a;
+            border: none;
+            padding: 12px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 6px;
+            width: 80%;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+        .menu-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        canvas {
+            background: #1e293b;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            cursor: pointer;
+            display: none;
+        }
     </style>
 </head>
 <body>
-    <div id="menu">
+    <div class="container">
         <h1>Русские Шашки Online</h1>
-        <p>Выберите режим игры:</p>
-        <button class="btn" onclick="startGame('pvp')">Играть с другом (Online)</button>
-        <button class="btn" onclick="startGame('bot')">Играть с Ботом</button>
-    </div>
+        <div id="status">Выберите режим игры</div>
+        
+        <div id="menu">
+            <button class="menu-btn" onclick="startGame('pvp')">Играть Онлайн (PvP)</button>
+            <button class="menu-btn" onclick="startGame('bot')">Играть с Ботом</button>
+        </div>
 
-    <div id="game-container" class="hidden">
-        <h2 id="role-info"></h2>
-        <div id="status">Подключение...</div>
-        <div id="board"></div>
-        <button class="btn" onclick="location.reload()" style="background: #7f8c8d; font-size: 12px; padding: 6px 12px;">Выйти в меню</button>
+        <canvas id="boardCanvas" width="400" height="400"></canvas>
     </div>
 
     <script src="client.js"></script>

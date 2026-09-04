@@ -8,6 +8,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
+// Раздаем статику из текущей корневой директории
 app.use(express.static(__dirname));
 
 let rooms = {};
@@ -26,53 +27,35 @@ function createBoard() {
     return board;
 }
 
-// Упрощенная валидация и поиск ходов для русских шашек
-function getValidMoves(board, color) {
-    let simpleMoves = [];
-    let captureMoves = [];
+// Простейшая проверка легальности хода для теста графики
+function isValidMove(board, r1, c1, r2, c2, color) {
+    if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) return false;
+    if (board[r2][c2] !== null) return false;
+    
+    let piece = board[r1][c1];
+    if (!piece || piece.toLowerCase() !== color) return false;
 
-    for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-            let piece = board[r][c];
-            if (!piece || piece.toLowerCase() !== color) continue;
+    let dr = r2 - r1;
+    let dc = c2 - c1;
 
-            const isKing = piece === piece.toUpperCase() && piece !== color; // 'W' или 'B'
-            const opponentColor = color === 'w' ? ['b', 'B'] : ['w', 'W'];
+    // Простой ход на 1 клетку по диагонали вперед
+    let forwardDir = (color === 'w') ? -1 : 1;
+    if (Math.abs(dc) === 1 && dr === forwardDir) return true;
 
-            // Направления движения
-            const dirs = color === 'w' ? [[-1, -1], [-1, 1]] : [[1, -1], [1, 1]];
-            const allDirs = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
-
-            // Проверка взятий (бой) во все 4 стороны
-            allDirs.forEach(([dr, dc]) => {
-                let nr = r + dr, nc = c + dc;
-                let nnr = r + dr * 2, nnc = c + dc * 2;
-                if (nnr >= 0 && nnr < 8 && nnc >= 0 && nnc < 8) {
-                    if (board[nr][nc] && opponentColor.includes(board[nr][nc]) && board[nnr][nnc] === null) {
-                        captureMoves.push({ from: {r, c}, to: {r: nnr, c: nnc}, capture: {r: nr, c: nc} });
-                    }
-                }
-            });
-
-            // Простые ходы
-            const moveDirs = isKing ? allDirs : dirs;
-            moveDirs.forEach(([dr, dc]) => {
-                let nr = r + dr, nc = c + dc;
-                if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && board[nr][nc] === null) {
-                    simpleMoves.push({ from: {r, c}, to: {r: nr, c: nc} });
-                }
-            });
-        }
+    // Взятие (прыжок через клетку)
+    if (Math.abs(dc) === 2 && Math.abs(dr) === 2) {
+        let midR = (r1 + r2) / 2;
+        let midC = (c1 + c2) / 2;
+        let midPiece = board[midR][midC];
+        if (midPiece && midPiece.toLowerCase() !== color) return true;
     }
 
-    // Обязательный бой
-    if (captureMoves.length > 0) return captureMoves;
-    return simpleMoves;
+    return false;
 }
 
 wss.on('connection', (ws) => {
     let currentRoomId = null;
-    let playerColor = null;
+    let myColor = null;
 
     ws.on('message', (message) => {
         try {
@@ -81,7 +64,7 @@ wss.on('connection', (ws) => {
             if (data.type === 'START_GAME') {
                 if (data.mode === 'bot') {
                     currentRoomId = 'bot_' + Math.random().toString(36).substring(2, 9);
-                    playerColor = 'w';
+                    myColor = 'w';
                     rooms[currentRoomId] = {
                         mode: 'bot',
                         board: createBoard(),
@@ -92,7 +75,7 @@ wss.on('connection', (ws) => {
                 } else if (data.mode === 'pvp') {
                     if (waitingPlayer && waitingPlayer.readyState === WebSocket.OPEN) {
                         currentRoomId = 'pvp_' + Math.random().toString(36).substring(2, 9);
-                        playerColor = 'b';
+                        myColor = 'b';
                         rooms[currentRoomId] = {
                             mode: 'pvp',
                             board: createBoard(),
@@ -104,68 +87,51 @@ wss.on('connection', (ws) => {
                         waitingPlayer = null;
                     } else {
                         waitingPlayer = ws;
-                        ws.send(JSON.stringify({ type: 'WAITING', message: 'Ожидание соперника...' }));
+                        ws.send(JSON.stringify({ type: 'WAITING', message: 'Поиск соперника в сети...' }));
                     }
                 }
             }
 
             if (data.type === 'MAKE_MOVE' && currentRoomId) {
                 const room = rooms[currentRoomId];
-                if (!room || room.turn !== playerColor) return;
+                if (!room || room.turn !== myColor) return;
 
-                const validMoves = getValidMoves(room.board, room.turn);
-                const moveMatch = validMoves.find(m => m.from.r === data.from.r && m.from.c === data.from.c && m.to.r === data.to.r && m.to.c === data.to.c);
+                const { from, to } = data;
+                if (isValidMove(room.board, from.r, from.c, to.r, to.c, myColor)) {
+                    // Передвигаем шашку
+                    room.board[to.r][to.c] = room.board[from.r][from.c];
+                    room.board[from.r][from.c] = null;
 
-                if (!moveMatch) {
-                    ws.send(JSON.stringify({ type: 'ERROR', message: 'Недопустимый ход!' }));
-                    return;
-                }
+                    // Если был прыжок через противника — удаляем побитую шашку
+                    if (Math.abs(to.r - from.r) === 2) {
+                        let midR = (from.r + to.r) / 2;
+                        let midC = (from.c + to.c) / 2;
+                        room.board[midR][midC] = null;
+                    }
 
-                // Выполняем ход
-                let piece = room.board[moveMatch.from.r][moveMatch.from.c];
-                room.board[moveMatch.to.r][moveMatch.to.c] = piece;
-                room.board[moveMatch.from.r][moveMatch.from.c] = null;
+                    // Превращение в дамку
+                    if (myColor === 'w' && to.r === 0) room.board[to.r][to.c] = 'W';
+                    if (myColor === 'b' && to.r === 7) room.board[to.r][to.c] = 'B';
 
-                if (moveMatch.capture) {
-                    room.board[moveMatch.capture.r][moveMatch.capture.c] = null;
-                }
+                    room.turn = room.turn === 'w' ? 'b' : 'w';
 
-                // Превращение в дамку
-                if (piece === 'w' && moveMatch.to.r === 0) room.board[moveMatch.to.r][moveMatch.to.c] = 'W';
-                if (piece === 'b' && moveMatch.to.r === 7) room.board[moveMatch.to.r][moveMatch.to.c] = 'B';
+                    // Рассылаем обновление
+                    broadcastState(room);
 
-                room.turn = room.turn === 'w' ? 'b' : 'w';
-
-                // Рассылка
-                broadcastState(room);
-
-                // Ход бота
-                if (room.mode === 'bot' && room.turn === 'b') {
-                    setTimeout(() => {
-                        const botMoves = getValidMoves(room.board, 'b');
-                        if (botMoves.length > 0) {
-                            const bm = botMoves[Math.floor(Math.random() * botMoves.length)];
-                            let bPiece = room.board[bm.from.r][bm.from.c];
-                            room.board[bm.to.r][bm.to.c] = bPiece;
-                            room.board[bm.from.r][bm.from.c] = null;
-                            if (bm.capture) room.board[bm.capture.r][bm.capture.c] = null;
-                            if (bPiece === 'b' && bm.to.r === 7) room.board[bm.to.r][bm.to.c] = 'B';
-                        }
-                        room.turn = 'w';
-                        broadcastState(room);
-                    }, 800);
+                    // Если игра с ботом и сейчас ход бота
+                    if (room.mode === 'bot' && room.turn === 'b') {
+                        setTimeout(() => makeBotMove(room), 600);
+                    }
                 }
             }
-        } catch (e) {
-            console.error(e);
-        }
+        } catch (e) { console.error(e); }
     });
 
     ws.on('close', () => {
         if (waitingPlayer === ws) waitingPlayer = null;
         if (currentRoomId && rooms[currentRoomId]) {
             const room = rooms[currentRoomId];
-            const oppColor = playerColor === 'w' ? 'b' : 'w';
+            const oppColor = myColor === 'w' ? 'b' : 'w';
             if (room.players[oppColor] && room.players[oppColor].readyState === WebSocket.OPEN) {
                 room.players[oppColor].send(JSON.stringify({ type: 'OPPONENT_DISCONNECTED' }));
             }
@@ -180,12 +146,32 @@ function broadcastState(room) {
     if (room.players.b && room.players.b.readyState === WebSocket.OPEN) room.players.b.send(payload);
 }
 
-app.get('/api/status', (req, res) => {
-    res.json({
-        activeRooms: Object.keys(rooms).length,
-        waitingPlayer: waitingPlayer ? 1 : 0
-    });
-});
+function makeBotMove(room) {
+    let moves = [];
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            if (room.board[r][c] === 'b') {
+                [[r+1, c-1], [r+1, c+1], [r+2, c-2], [r+2, c+2]].forEach(([nr, nc]) => {
+                    if (isValidMove(room.board, r, c, nr, nc, 'b')) {
+                        moves.push({ from: {r, c}, to: {r: nr, c: nc} });
+                    }
+                });
+            }
+        }
+    }
+
+    if (moves.length > 0) {
+        const m = moves[Math.floor(Math.random() * moves.length)];
+        room.board[m.to.r][m.to.c] = room.board[m.from.r][m.from.c];
+        room.board[m.from.r][m.from.c] = null;
+        if (Math.abs(m.to.r - m.from.r) === 2) {
+            room.board[(m.from.r + m.to.r)/2][(m.from.c + m.to.c)/2] = null;
+        }
+        if (m.to.r === 7) room.board[m.to.r][m.to.c] = 'B';
+    }
+    room.turn = 'w';
+    broadcastState(room);
+}
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
