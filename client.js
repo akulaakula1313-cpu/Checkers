@@ -40,10 +40,12 @@ resizeFxCanvas();
 function toggleMusic() {
     if (bgMusic.paused) {
         bgMusic.play().catch(e => console.log(e));
-        musicToggleBtn.innerText = "🎵 МУЗЫКА: ВКЛ";
+        musicToggleBtn.style.opacity = "1";
+        musicToggleBtn.style.background = "linear-gradient(to bottom, #22c55e, #16a34a)"; 
     } else {
         bgMusic.pause();
-        musicToggleBtn.innerText = "🎵 МУЗЫКА: ВЫКЛ";
+        musicToggleBtn.style.opacity = "0.6";
+        musicToggleBtn.style.background = ""; 
     }
 }
 
@@ -140,7 +142,7 @@ function startGame(mode) {
     gameScreen.style.display = 'flex';
     chatBox.style.display = mode === 'pvp' ? 'block' : 'none';
     ws.send(JSON.stringify({ type: 'START_GAME', mode }));
-    if(bgMusic.paused) { bgMusic.play().catch(()=>{}); musicToggleBtn.innerText = "🎵 МУЗЫКА: ВКЛ"; }
+    if(bgMusic.paused) { toggleMusic(); }
 }
 
 function backToMenu() { window.location.reload(); }
@@ -165,7 +167,9 @@ ws.onmessage = (event) => {
         statusUpdate.innerText = data.message;
         if(data.code) { document.getElementById('generatedCode').innerText = data.code; }
     } else if (data.type === 'GAME_STARTED' || data.type === 'STATE_UPDATE') {
+        menuScreen.style.display = 'none';
         document.getElementById('waitingScreen').style.display = 'none';
+        
         gameOverScreen.style.display = 'none';
         gameScreen.style.display = 'flex';
         stopFireworks();
@@ -233,12 +237,13 @@ canvas.addEventListener('click', (e) => {
     
     const virtualX = clientX * scaleX;
     const virtualY = clientY * scaleY;
-
+    
     let c = Math.floor(virtualX / cellSize);
     let r = Math.floor(virtualY / cellSize);
-    if (myColor === 'b') { r = 7 - r; c = 7 - c; }
     
+    if (myColor === 'b') { r = 7 - r; c = 7 - c; }
     const piece = board[r][c];
+    
     if (piece && piece.toLowerCase() === myColor) {
         selectedPiece = { r, c };
         drawBoard();

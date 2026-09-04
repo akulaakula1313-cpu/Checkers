@@ -25,7 +25,6 @@
         </div>
 
         <button class="menu-btn secondary" style="margin-top: 20px;" onclick="toggleRules()">📜 ПРАВИЛА ИГРЫ</button>
-        <button class="menu-btn secondary" id="musicToggleBtn" onclick="toggleMusic()">🎵 МУЗЫКА: ВЫКЛ</button>
         
         <div id="rulesPanel" class="rules-panel">
             <h3 style="margin-top:0; color:var(--accent-gold);">Правила русских шашек:</h3>
@@ -83,8 +82,10 @@
             </div>
         </div>
 
+        <!-- Нижний ряд кнопок управления внутри игры -->
         <div class="controls-row">
             <button class="ui-btn" onclick="backToMenu()" title="В меню">☰</button>
+            <button class="ui-btn" id="musicToggleBtn" onclick="toggleMusic()" title="Вкл/Выкл Музыку">🎵</button>
             <button class="ui-btn" onclick="toggleChat()" title="Чат">💬</button>
         </div>
     </div>

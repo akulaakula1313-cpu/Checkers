@@ -262,6 +262,7 @@ wss.on('connection', (ws) => {
                     }
                 }
             }
+            
             if (data.type === 'CHAT_MSG' && currentRoomCode) {
                 const room = rooms[currentRoomCode];
                 if (!room || room.mode !== 'pvp') return;
