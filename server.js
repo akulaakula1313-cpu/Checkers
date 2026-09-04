@@ -8,12 +8,12 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
-// Раздаем статику из текущей корневой директории
+// Важно: раздаем файлы прямо из корня, как у вас на GitHub
 app.use(express.static(__dirname));
 
-let rooms = {};
-let waitingPlayer = null;
+let rooms = {}; 
 
+// Создание начальной доски для русских шашек
 function createBoard() {
     let board = Array(8).fill(null).map(() => Array(8).fill(null));
     for (let r = 0; r < 8; r++) {
@@ -27,151 +27,326 @@ function createBoard() {
     return board;
 }
 
-// Простейшая проверка легальности хода для теста графики
-function isValidMove(board, r1, c1, r2, c2, color) {
-    if (r2 < 0 || r2 > 7 || c2 < 0 || c2 > 7) return false;
-    if (board[r2][c2] !== null) return false;
-    
-    let piece = board[r1][c1];
-    if (!piece || piece.toLowerCase() !== color) return false;
+// Генерация случайного 4-значного кода комнаты (Только ЦИФРЫ)
+function generateRoomCode() {
+    const digits = '0123456789';
+    let code = '';
+    for (let i = 0; i < 4; i++) {
+        code += digits.charAt(Math.floor(Math.random() * digits.length));
+    }
+    return code;
+}
 
-    let dr = r2 - r1;
-    let dc = c2 - c1;
+// Сбор всех возможных взятий для правила "Обязательный бой"
+function getAllCaptures(board, color) {
+    let captures = [];
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            if (board[r][c] && board[r][c].toLowerCase() === color) {
+                captures.push(...getPieceCaptures(board, r, c));
+            }
+        }
+    }
+    return captures;
+}
 
-    // Простой ход на 1 клетку по диагонали вперед
-    let forwardDir = (color === 'w') ? -1 : 1;
-    if (Math.abs(dc) === 1 && dr === forwardDir) return true;
+function getPieceCaptures(board, r, c) {
+    let piece = board[r][c];
+    let color = piece.toLowerCase();
+    let isKing = (piece === 'W' || piece === 'B');
+    let captures = [];
+    const dirs = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
 
-    // Взятие (прыжок через клетку)
-    if (Math.abs(dc) === 2 && Math.abs(dr) === 2) {
-        let midR = (r1 + r2) / 2;
-        let midC = (c1 + c2) / 2;
-        let midPiece = board[midR][midC];
-        if (midPiece && midPiece.toLowerCase() !== color) return true;
+    if (!isKing) {
+        dirs.forEach(([dr, dc]) => {
+            let midR = r + dr, midC = c + dc;
+            let endR = r + dr * 2, endC = c + dc * 2;
+            if (endR >= 0 && endR < 8 && endC >= 0 && endC < 8) {
+                let midPiece = board[midR][midC];
+                if (midPiece && midPiece.toLowerCase() !== color && board[endR][endC] === null) {
+                    captures.push({ from: {r, c}, to: {r: endR, c: endC}, jumped: {r: midR, c: midC} });
+                }
+            }
+        });
+    } else {
+        dirs.forEach(([dr, dc]) => {
+            let foundEnemy = null;
+            let steps = 1;
+            while (true) {
+                let currR = r + dr * steps;
+                let currC = c + dc * steps;
+                if (currR < 0 || currR >= 8 || currC < 0 || currC >= 8) break;
+                let p = board[currR][currC];
+                if (p !== null) {
+                    if (p.toLowerCase() === color) break;
+                    if (foundEnemy) break;
+                    foundEnemy = { r: currR, c: currC };
+                } else if (foundEnemy) {
+                    captures.push({ from: {r, c}, to: {r: currR, c: currC}, jumped: foundEnemy });
+                }
+                steps++;
+            }
+        });
+    }
+    return captures;
+}
+
+function getPieceQuietMoves(board, r, c) {
+    let piece = board[r][c];
+    let color = piece.toLowerCase();
+    let isKing = (piece === 'W' || piece === 'B');
+    let moves = [];
+    const dirs = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+
+    if (!isKing) {
+        let forwardDir = (color === 'w') ? -1 : 1;
+        [[-1, forwardDir], [1, forwardDir]].forEach(([dc, dr]) => {
+            let nr = r + dr, nc = c + dc;
+            if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && board[nr][nc] === null) {
+                moves.push({ from: {r, c}, to: {r: nr, c: nc} });
+            }
+        });
+    } else {
+        dirs.forEach(([dr, dc]) => {
+            let steps = 1;
+            while (true) {
+                let nr = r + dr * steps;
+                let nc = c + dc * steps;
+                if (nr < 0 || nr >= 8 || nc < 0 || nc >= 8) break;
+                if (board[nr][nc] !== null) break;
+                moves.push({ from: {r, c}, to: {r: nr, c: nc} });
+                steps++;
+            }
+        });
+    }
+    return moves;
+}
+
+function getValidMove(board, from, to, color) {
+    let allCaps = getAllCaptures(board, color);
+    if (allCaps.length > 0) {
+        return allCaps.find(m => m.from.r === from.r && m.from.c === from.c && m.to.r === to.r && m.to.c === to.c) || null;
+    } else {
+        let quietMoves = getPieceQuietMoves(board, from.r, from.c);
+        return quietMoves.find(m => m.to.r === to.r && m.to.c === to.c) ? { from, to, jumped: null } : null;
+    }
+}
+
+// Умная проверка окончания игры (когда закончились шашки или ходы)
+function checkGameOver(board, nextTurnColor) {
+    let hasWhitePieces = false;
+    let hasBlackPieces = false;
+
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            if (board[r][c]) {
+                if (board[r][c].toLowerCase() === 'w') hasWhitePieces = true;
+                if (board[r][c].toLowerCase() === 'b') hasBlackPieces = true;
+            }
+        }
     }
 
-    return false;
+    if (!hasWhitePieces) return 'b'; // Черные выиграли
+    if (!hasBlackPieces) return 'w'; // Бевые выиграли
+
+    // Проверка блокировки ходов (пат)
+    let hasMoves = false;
+    let captures = getAllCaptures(board, nextTurnColor);
+    if (captures.length > 0) {
+        hasMoves = true;
+    } else {
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                if (board[r][c] && board[r][c].toLowerCase() === nextTurnColor) {
+                    if (getPieceQuietMoves(board, r, c).length > 0) {
+                        hasMoves = true;
+                        break;
+                    }
+                }
+            }
+            if (hasMoves) break;
+        }
+    }
+
+    if (!hasMoves) return nextTurnColor === 'w' ? 'b' : 'w';
+    return null;
 }
 
 wss.on('connection', (ws) => {
-    let currentRoomId = null;
+    let currentRoomCode = null;
     let myColor = null;
 
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
 
-            if (data.type === 'START_GAME') {
-                if (data.mode === 'bot') {
-                    currentRoomId = 'bot_' + Math.random().toString(36).substring(2, 9);
-                    myColor = 'w';
-                    rooms[currentRoomId] = {
-                        mode: 'bot',
-                        board: createBoard(),
-                        turn: 'w',
-                        players: { w: ws }
-                    };
-                    ws.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'bot', board: rooms[currentRoomId].board, turn: 'w' }));
-                } else if (data.mode === 'pvp') {
-                    if (waitingPlayer && waitingPlayer.readyState === WebSocket.OPEN) {
-                        currentRoomId = 'pvp_' + Math.random().toString(36).substring(2, 9);
-                        myColor = 'b';
-                        rooms[currentRoomId] = {
-                            mode: 'pvp',
-                            board: createBoard(),
-                            turn: 'w',
-                            players: { w: waitingPlayer, b: ws }
-                        };
-                        waitingPlayer.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'pvp', board: rooms[currentRoomId].board, turn: 'w' }));
-                        ws.send(JSON.stringify({ type: 'GAME_STARTED', color: 'b', mode: 'pvp', board: rooms[currentRoomId].board, turn: 'w' }));
-                        waitingPlayer = null;
-                    } else {
-                        waitingPlayer = ws;
-                        ws.send(JSON.stringify({ type: 'WAITING', message: 'Поиск соперника в сети...' }));
-                    }
+            // Создание одиночной игры с Ботом
+            if (data.type === 'START_GAME' && data.mode === 'bot') {
+                currentRoomCode = 'BOT_' + Math.random().toString(36).substring(2, 7);
+                myColor = 'w';
+                rooms[currentRoomCode] = { mode: 'bot', board: createBoard(), turn: 'w', players: { w: ws }, rematchReady: {} };
+                ws.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'bot', board: rooms[currentRoomCode].board, turn: 'w' }));
+            }
+
+            // Создание стола по цифровому коду
+            if (data.type === 'CREATE_ROOM') {
+                let code = generateRoomCode();
+                while (rooms[code]) { code = generateRoomCode(); } // Против дубликатов
+                currentRoomCode = code;
+                myColor = 'w';
+                rooms[code] = { mode: 'pvp', board: createBoard(), turn: 'w', players: { w: ws, b: null }, rematchReady: {} };
+                ws.send(JSON.stringify({ type: 'WAITING', message: 'Код стола создан', code: code }));
+            }
+
+            // Подключение к столу по 4 цифрам
+            if (data.type === 'JOIN_ROOM') {
+                let code = data.roomCode;
+                if (rooms[code] && rooms[code].mode === 'pvp' && !rooms[code].players.b) {
+                    currentRoomCode = code;
+                    myColor = 'b';
+                    rooms[code].players.b = ws;
+                    rooms[code].players.w.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'pvp', board: rooms[code].board, turn: 'w' }));
+                    rooms[code].players.b.send(JSON.stringify({ type: 'GAME_STARTED', color: 'b', mode: 'pvp', board: rooms[code].board, turn: 'w' }));
+                } else {
+                    ws.send(JSON.stringify({ type: 'WAITING', message: 'Стол не найден или уже занят!' }));
                 }
             }
 
-            if (data.type === 'MAKE_MOVE' && currentRoomId) {
-                const room = rooms[currentRoomId];
+            // Логика перемещения и взятий
+            if (data.type === 'MAKE_MOVE' && currentRoomCode) {
+                const room = rooms[currentRoomCode];
                 if (!room || room.turn !== myColor) return;
 
                 const { from, to } = data;
-                if (isValidMove(room.board, from.r, from.c, to.r, to.c, myColor)) {
-                    // Передвигаем шашку
-                    room.board[to.r][to.c] = room.board[from.r][from.c];
+                const validMove = getValidMove(room.board, from, to, myColor);
+
+                if (validMove) {
+                    let piece = room.board[from.r][from.c];
+                    room.board[to.r][to.c] = piece;
                     room.board[from.r][from.c] = null;
 
-                    // Если был прыжок через противника — удаляем побитую шашку
-                    if (Math.abs(to.r - from.r) === 2) {
-                        let midR = (from.r + to.r) / 2;
-                        let midC = (from.c + to.c) / 2;
-                        room.board[midR][midC] = null;
-                    }
+                    if (validMove.jumped) room.board[validMove.jumped.r][validMove.jumped.c] = null;
 
                     // Превращение в дамку
                     if (myColor === 'w' && to.r === 0) room.board[to.r][to.c] = 'W';
                     if (myColor === 'b' && to.r === 7) room.board[to.r][to.c] = 'B';
 
-                    room.turn = room.turn === 'w' ? 'b' : 'w';
+                    // Проверка конца игры
+                    let nextTurn = room.turn === 'w' ? 'b' : 'w';
+                    let winner = checkGameOver(room.board, nextTurn);
 
-                    // Рассылаем обновление
-                    broadcastState(room);
+                    if (winner) {
+                        sendGameOver(room, winner);
+                    } else {
+                        room.turn = nextTurn;
+                        broadcastState(room);
 
-                    // Если игра с ботом и сейчас ход бота
-                    if (room.mode === 'bot' && room.turn === 'b') {
-                        setTimeout(() => makeBotMove(room), 600);
+                        if (room.mode === 'bot' && room.turn === 'b') {
+                            setTimeout(() => makeBotMove(room), 600);
+                        }
                     }
                 }
             }
+
+            // Обработка кнопки Реванш
+            if (data.type === 'REQUEST_REMATCH' && currentRoomCode) {
+                const room = rooms[currentRoomCode];
+                if (!room) return;
+
+                if (room.mode === 'bot') {
+                    room.board = createBoard();
+                    room.turn = 'w';
+                    ws.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'bot', board: room.board, turn: 'w' }));
+                } else {
+                    room.rematchReady[myColor] = true;
+                    // Если оба игрока нажали реванш за этим столом
+                    if (room.rematchReady.w && room.rematchReady.b) {
+                        room.board = createBoard();
+                        room.turn = 'w';
+                        room.rematchReady = {};
+                        room.players.w.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'pvp', board: room.board, turn: 'w' }));
+                        room.players.b.send(JSON.stringify({ type: 'GAME_STARTED', color: 'b', mode: 'pvp', board: room.board, turn: 'w' }));
+                    } else {
+                        let oppColor = myColor === 'w' ? 'b' : 'w';
+                        if (room.players[oppColor] && room.players[oppColor].readyState === WebSocket.OPEN) {
+                            room.players[oppColor].send(JSON.stringify({ type: 'REMATCH_REQUESTED' }));
+                        }
+                    }
+                }
+            }
+
+            // Пересылка сообщений чата (включая быстрые смайлики)
+            if (data.type === 'CHAT_MSG' && currentRoomCode) {
+                const room = rooms[currentRoomCode];
+                if (!room || room.mode !== 'pvp') return;
+
+                const payload = JSON.stringify({
+                    type: 'CHAT_MSG',
+                    sender: myColor === 'w' ? 'Белый' : 'Черный',
+                    text: data.text
+                });
+
+                if (room.players.w && room.players.w.readyState === WebSocket.OPEN) room.players.w.send(payload);
+                if (room.players.b && room.players.b.readyState === WebSocket.OPEN) room.players.b.send(payload);
+            }
+
         } catch (e) { console.error(e); }
     });
 
     ws.on('close', () => {
-        if (waitingPlayer === ws) waitingPlayer = null;
-        if (currentRoomId && rooms[currentRoomId]) {
-            const room = rooms[currentRoomId];
+        if (currentRoomCode && rooms[currentRoomCode]) {
+            const room = rooms[currentRoomCode];
             const oppColor = myColor === 'w' ? 'b' : 'w';
             if (room.players[oppColor] && room.players[oppColor].readyState === WebSocket.OPEN) {
                 room.players[oppColor].send(JSON.stringify({ type: 'OPPONENT_DISCONNECTED' }));
             }
-            delete rooms[currentRoomId];
+            delete rooms[currentRoomCode];
         }
     });
 });
 
+function sendGameOver(room, winner) {
+    const payloadW = JSON.stringify({ type: 'GAME_OVER', winner, result: winner === 'w' ? 'WIN' : 'LOSE' });
+    const payloadB = JSON.stringify({ type: 'GAME_OVER', winner, result: winner === 'b' ? 'WIN' : 'LOSE' });
+    if (room.players.w && room.players.w.readyState === WebSocket.OPEN) room.players.w.send(payloadW);
+    if (room.players.b && room.players.b.readyState === WebSocket.OPEN) room.players.b.send(payloadB);
+}
+
 function broadcastState(room) {
-    const payload = JSON.stringify({ type: 'STATE_UPDATE', board: room.board, turn: room.turn });
+    const payload = JSON.stringify({ type: 'STATE_UPDATE', board: room.board, turn: room.turn, mode: room.mode });
     if (room.players.w && room.players.w.readyState === WebSocket.OPEN) room.players.w.send(payload);
     if (room.players.b && room.players.b.readyState === WebSocket.OPEN) room.players.b.send(payload);
 }
 
+// Ход искусственного интеллекта (Бота)
 function makeBotMove(room) {
-    let moves = [];
-    for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-            if (room.board[r][c] === 'b') {
-                [[r+1, c-1], [r+1, c+1], [r+2, c-2], [r+2, c+2]].forEach(([nr, nc]) => {
-                    if (isValidMove(room.board, r, c, nr, nc, 'b')) {
-                        moves.push({ from: {r, c}, to: {r: nr, c: nc} });
-                    }
-                });
+    let color = 'b';
+    let moves = getAllCaptures(room.board, color);
+    if (moves.length === 0) {
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                if (room.board[r][c] && room.board[r][c].toLowerCase() === color) {
+                    moves.push(...getPieceQuietMoves(room.board, r, c));
+                }
             }
         }
     }
-
     if (moves.length > 0) {
-        const m = moves[Math.floor(Math.random() * moves.length)];
-        room.board[m.to.r][m.to.c] = room.board[m.from.r][m.from.c];
+        let m = moves[Math.floor(Math.random() * moves.length)];
+        let piece = room.board[m.from.r][m.from.c];
+        room.board[m.to.r][m.to.c] = piece;
         room.board[m.from.r][m.from.c] = null;
-        if (Math.abs(m.to.r - m.from.r) === 2) {
-            room.board[(m.from.r + m.to.r)/2][(m.from.c + m.to.c)/2] = null;
-        }
+        if (m.jumped) room.board[m.jumped.r][m.jumped.c] = null;
         if (m.to.r === 7) room.board[m.to.r][m.to.c] = 'B';
     }
-    room.turn = 'w';
-    broadcastState(room);
+    let winner = checkGameOver(room.board, 'w');
+    if (winner) {
+        sendGameOver(room, winner);
+    } else {
+        room.turn = 'w';
+        broadcastState(room);
+    }
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
+server.listen(PORT, () => console.log(`Сервер SANI GROUP запущен на порту ${PORT}`));
