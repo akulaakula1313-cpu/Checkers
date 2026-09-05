@@ -1,4 +1,3 @@
-// Подключение к DOM-элементам
 const canvas = document.getElementById('boardCanvas');
 const ctx = canvas.getContext('2d');
 const menuScreen = document.getElementById('menuScreen');
@@ -17,7 +16,6 @@ const musicToggleBtn = document.getElementById('musicToggleBtn');
 const fxCanvas = document.getElementById('fxCanvas');
 const fxCtx = fxCanvas.getContext('2d');
 
-// Настройка WebSocket-соединения
 const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
 const ws = new WebSocket(`${protocol}${window.location.host}`);
 
@@ -51,7 +49,6 @@ function toggleMusic() {
     }
 }
 
-// Генерация системных звуков через Web Audio API
 function playTurnSound() {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -104,6 +101,24 @@ function playWinSound() {
             osc.connect(gain); gain.connect(audioCtx.destination);
             osc.start(); osc.stop(audioCtx.currentTime + 0.8);
         });
+
+        for (let i = 0; i < 40; i++) {
+            setTimeout(() => {
+                let bufferSize = audioCtx.sampleRate * 0.08;
+                let buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                let data = buffer.getChannelData(0);
+                for (let j = 0; j < bufferSize; j++) { data[j] = Math.random() * 2 - 1; }
+                let noise = audioCtx.createBufferSource();
+                noise.buffer = buffer;
+                let filter = audioCtx.createBiquadFilter();
+                filter.type = 'bandpass'; filter.frequency.value = 1000;
+                let noiseGain = audioCtx.createGain();
+                noiseGain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+                noiseGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.06);
+                noise.connect(filter); filter.connect(noiseGain); noiseGain.connect(audioCtx.destination);
+                noise.start();
+            }, Math.random() * 1500);
+        }
     } catch(e){}
 }
 
@@ -131,39 +146,32 @@ function startGame(mode) {
 }
 
 function backToMenu() { window.location.reload(); }
-
+function toggleChat() { chatBox.style.display = chatBox.style.display === 'block' ? 'none' : 'block'; }
 function sendChatMessage() {
-    const textValue = chatInput.value.trim();
-    if(!textValue) return;
-    ws.send(JSON.stringify({ type: 'CHAT_MSG', text: textValue }));
+    const text = chatInput.value.trim();
+    if(!text) return;
+    ws.send(JSON.stringify({ type: 'CHAT_MSG', text }));
     chatInput.value = '';
 }
-
-function sendQuickEmoji(emoji) {
-    ws.send(JSON.stringify({ type: 'CHAT_MSG', text: emoji }));
-}
-
+function sendQuickEmoji(emoji) { ws.send(JSON.stringify({ type: 'CHAT_MSG', text: emoji })); }
 function requestRematch() {
     rematchBtn.innerText = '⏳ ОЖИДАНИЕ СОПЕРНИКА...';
     rematchBtn.disabled = true;
     ws.send(JSON.stringify({ type: 'REQUEST_REMATCH' }));
 }
 
-// Обработка сообщений от сервера
 ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
 
     if (data.type === 'WAITING') {
-        menuScreen.style.display = 'none';
-        document.getElementById('waitingScreen').style.display = 'flex';
         statusUpdate.innerText = data.message;
         if(data.code) { document.getElementById('generatedCode').innerText = data.code; }
     } else if (data.type === 'GAME_STARTED' || data.type === 'STATE_UPDATE') {
         menuScreen.style.display = 'none';
         document.getElementById('waitingScreen').style.display = 'none';
+        
         gameOverScreen.style.display = 'none';
         gameScreen.style.display = 'flex';
-        if (data.mode === 'pvp') chatBox.style.display = 'flex';
         stopFireworks();
         
         rematchBtn.innerText = '🔄 ПРЕДЛОЖИТЬ РЕВАНШ';
@@ -190,9 +198,8 @@ ws.onmessage = (event) => {
         statusUpdate.innerText = currentTurn === myColor ? 'ВАШ ХОД!' : 'ОЖИДАНИЕ ХОДА...';
         drawBoard();
     } else if (data.type === 'CHAT_MSG') {
-        const msgContainer = document.createElement('div');
-        msgContainer.innerHTML = '<b>' + data.sender + ':</b> ' + data.text;
-        chatMessages.appendChild(msgContainer);
+        const msgHtml = `<div><b>\${data.sender}:</b> \${data.text}</div>`;
+        chatMessages.innerHTML += msgHtml;
         chatMessages.scrollTop = chatMessages.scrollHeight;
     } else if (data.type === 'GAME_OVER') {
         gameOverScreen.style.display = 'flex';
@@ -218,14 +225,16 @@ ws.onmessage = (event) => {
     }
 };
 
-// Обработка кликов по холсту доски
 canvas.addEventListener('click', (e) => {
     if (!board || currentTurn !== myColor) return;
+
     const rect = canvas.getBoundingClientRect();
     const clientX = e.clientX - rect.left;
     const clientY = e.clientY - rect.top;
+    
     const scaleX = virtualBoardSize / rect.width;
     const scaleY = virtualBoardSize / rect.height;
+    
     const virtualX = clientX * scaleX;
     const virtualY = clientY * scaleY;
     
@@ -233,8 +242,8 @@ canvas.addEventListener('click', (e) => {
     let r = Math.floor(virtualY / cellSize);
     
     if (myColor === 'b') { r = 7 - r; c = 7 - c; }
-    
     const piece = board[r][c];
+    
     if (piece && piece.toLowerCase() === myColor) {
         selectedPiece = { r, c };
         drawBoard();
@@ -250,7 +259,6 @@ canvas.addEventListener('click', (e) => {
     }
 });
 
-// Рисование доски и шашек
 function drawBoard() {
     if (!board) return;
     ctx.clearRect(0, 0, virtualBoardSize, virtualBoardSize);
@@ -260,14 +268,12 @@ function drawBoard() {
             let drawC = (myColor === 'b') ? (7 - c) : c;
             let bx = drawC * cellSize;
             let by = drawR * cellSize;
-            
             if ((r + c) % 2 === 0) {
                 ctx.fillStyle = '#fce8c7';
             } else {
                 ctx.fillStyle = '#802302';
             }
             ctx.fillRect(bx, by, cellSize, cellSize);
-            
             ctx.save();
             ctx.strokeStyle = (r + c) % 2 === 0 ? 'rgba(180,100,20,0.06)' : 'rgba(255,255,255,0.04)';
             ctx.lineWidth = 1;
@@ -275,11 +281,9 @@ function drawBoard() {
             ctx.arc(virtualBoardSize / 2, virtualBoardSize / 2, Math.abs(bx - 100) + by * 0.4, 0, Math.PI * 2);
             ctx.stroke();
             ctx.restore();
-            
             ctx.strokeStyle = 'rgba(0,0,0,0.12)';
             ctx.lineWidth = 1;
             ctx.strokeRect(bx, by, cellSize, cellSize);
-            
             if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
                 ctx.fillStyle = 'rgba(234, 179, 8, 0.45)';
                 ctx.fillRect(bx, by, cellSize, cellSize);
@@ -287,7 +291,6 @@ function drawBoard() {
                 ctx.lineWidth = 2;
                 ctx.strokeRect(bx + 1, by + 1, cellSize - 2, cellSize - 2);
             }
-            
             const piece = board[r][c];
             if (piece) {
                 let cx = bx + cellSize / 2;
@@ -298,7 +301,6 @@ function drawBoard() {
                 ctx.shadowBlur = 5;
                 ctx.shadowOffsetY = 3;
                 ctx.shadowOffsetX = 1;
-                
                 let gradient = ctx.createRadialGradient(cx - r1*0.3, cy - r1*0.3, r1 * 0.1, cx, cy, r1);
                 if (piece.toLowerCase() === 'w') {
                     gradient.addColorStop(0, '#ffffff');
@@ -311,18 +313,15 @@ function drawBoard() {
                 }
                 ctx.beginPath(); ctx.arc(cx, cy, r1, 0, Math.PI * 2);
                 ctx.fillStyle = gradient; ctx.fill(); ctx.restore();
-                
                 ctx.strokeStyle = piece.toLowerCase() === 'w' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)';
                 ctx.lineWidth = 1.5;
                 ctx.beginPath(); ctx.arc(cx, cy, r1 * 0.72, 0, Math.PI * 2); ctx.stroke();
                 ctx.beginPath(); ctx.arc(cx, cy, r1 * 0.48, 0, Math.PI * 2); ctx.stroke();
                 ctx.beginPath(); ctx.arc(cx, cy, r1 * 0.24, 0, Math.PI * 2); ctx.stroke();
-                
                 let bGrd = ctx.createLinearGradient(cx - r1, cy - r1, cx + r1, cy + r1);
                 bGrd.addColorStop(0, 'rgba(255,255,255,0.22)');
                 bGrd.addColorStop(0.3, 'rgba(255,255,255,0.0)');
                 ctx.beginPath(); ctx.arc(cx, cy, r1 - 1, 0, Math.PI * 2); ctx.fillStyle = bGrd; ctx.fill();
-                
                 if (piece === 'W' || piece === 'B') {
                     ctx.font = '16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                     ctx.fillStyle = '#eab308'; ctx.fillText('👑', cx, cy - 1);
@@ -332,7 +331,6 @@ function drawBoard() {
     }
 }
 
-// Система фейерверков для анимации победы
 function createFireworkExplosion(x, y) {
     const colors = ['#eab308', '#f97316', '#ef4444', '#3b82f6', '#10b981', '#a855f7'];
     const pCount = 50;
