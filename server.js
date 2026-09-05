@@ -262,7 +262,7 @@ wss.on('connection', (ws) => {
                     }
                 }
             }
-            
+
             if (data.type === 'CHAT_MSG' && currentRoomCode) {
                 const room = rooms[currentRoomCode];
                 if (!room || room.mode !== 'pvp') return;
@@ -332,4 +332,4 @@ function makeBotMove(room) {
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Сервер ШАШКИ от SANI GROUP запущен на порту ${PORT}`));
+server.listen(PORT, () => console.log(`Сервер ШАШКИ запущен на порту ${PORT}`));
