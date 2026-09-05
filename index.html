@@ -4,14 +4,87 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ШАШКИ от SANI GROUP</title>
-    <link rel="stylesheet" href="style.css">
+    <style>
+        :root {
+            --accent-gold: #f59e0b;
+            --bright-gold: #fef08a;
+            --panel-bg: rgba(20, 17, 16, 0.96);
+            --gold-gradient: linear-gradient(135deg, #fef08a 0%, #f59e0b 50%, #b45309 100%);
+            --btn-dark-grad: linear-gradient(180deg, #27272a 0%, #18181b 100%);
+        }
+        * { box-sizing: border-box; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+        body { margin: 0; background: radial-gradient(circle, #3b1401 0%, #0c0501 100%); color: #fff; font-family: 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 15px; position: relative; overflow-x: hidden; }
+        
+        .container-box { text-align: center; background: var(--panel-bg); padding: 40px 30px; border-radius: 28px; border: 3px solid transparent; background-image: linear-gradient(var(--panel-bg), var(--panel-bg)), var(--gold-gradient); background-origin: border-box; background-clip: padding-box, border-box; box-shadow: 0 25px 60px rgba(0,0,0,0.9), 0 0 30px rgba(245, 158, 11, 0.15); width: 100%; max-width: 420px; backdrop-filter: blur(10px); }
+        
+        h1 { margin: 0 0 5px; font-size: 26px; font-weight: 900; background: var(--gold-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 4px 12px rgba(0,0,0,0.5); letter-spacing: 1px; animation: goldGlow 3s ease-in-out infinite alternate; }
+        @keyframes goldGlow { 0% { filter: drop-shadow(0 0 2px rgba(254,240,138,0.2)); } 100% { filter: drop-shadow(0 0 12px rgba(245,158,11,0.6)); } }
+        
+        .creator-tag { font-size: 12px; color: #d4d4d8; letter-spacing: 4px; margin-bottom: 35px; text-transform: uppercase; font-weight: 800; cursor: pointer; text-shadow: 0 0 8px rgba(255,255,255,0.2); transition: color 0.3s; }
+        .creator-tag:hover { color: var(--bright-gold); }
+        
+        .menu-btn { background: var(--gold-gradient); color: #1e1b4b; border: none; padding: 16px 24px; font-size: 16px; font-weight: 800; border-radius: 14px; cursor: pointer; margin: 10px 0; width: 100%; box-shadow: 0 6px 20px rgba(180, 83, 9, 0.4), inset 0 2px 2px rgba(255,255,255,0.4); transition: transform 0.2s, box-shadow 0.2s, filter 0.2s; letter-spacing: 0.5px; }
+        .menu-btn:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(245, 158, 11, 0.5); }
+        .menu-btn:active { transform: translateY(1px); }
+        .menu-btn.secondary { background: var(--btn-dark-grad); color: #f4f4f5; border: 1px solid #3f3f46; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
+        .menu-btn.secondary:hover { border-color: var(--accent-gold); color: var(--bright-gold); box-shadow: 0 6px 15px rgba(245, 158, 11, 0.2); }
+        
+        .input-group { margin-top: 25px; padding-top: 25px; border-top: 1px dashed rgba(245, 158, 11, 0.2); }
+        .code-input { width: 100%; padding: 14px; background: #110f0e; border: 2px solid #3f3f46; color: var(--bright-gold); border-radius: 12px; font-size: 20px; font-weight: bold; text-align: center; outline: none; letter-spacing: 2px; box-shadow: inset 0 2px 6px rgba(0,0,0,0.6); }
+        .code-input:focus { border-color: var(--accent-gold); box-shadow: inset 0 2px 6px #000, 0 0 12px rgba(245,158,11,0.3); }
+        
+        .room-code-display { font-size: 42px; font-weight: 900; color: var(--accent-gold); letter-spacing: 6px; margin: 20px 0; text-shadow: 0 0 15px rgba(245,158,11,0.5); }
+        
+        .rules-panel { display: none; text-align: left; max-height: 180px; overflow-y: auto; background: #110f0e; padding: 18px; border-radius: 12px; font-size: 13px; color: #e4e4e7; margin-top: 15px; border: 1px solid #27272a; line-height: 1.6; }
+        
+        .game-wrapper { display: none; flex-direction: column; align-items: center; background: rgba(0, 0, 0, 0.5); padding: 15px; border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); width: 100%; max-width: 420px; }
+        .vs-panel { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 12px; }
+        .player-card { display: flex; flex-direction: column; align-items: center; background: #1c1917; border: 2px solid var(--accent-gold); border-radius: 12px; padding: 6px; width: 32%; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
+        .player-avatar { font-size: 28px; margin-bottom: 2px; }
+        .player-name { font-size: 11px; font-weight: bold; color: #f59e0b; text-transform: uppercase; text-align: center; }
+        .vs-text { font-size: 20px; font-weight: 900; color: #f59e0b; text-shadow: 0 2px 4px #000; }
+        
+        .board-container { border: 10px solid #3b1803; border-radius: 14px; background: #5c1d06; width: 100%; aspect-ratio: 1 / 1; position: relative; box-shadow: inset 0 4px 10px #000, 0 12px 24px rgba(0,0,0,0.7); }
+        canvas { width: 100%; height: 100%; display: block; cursor: pointer; border-radius: 4px; }
+        
+        .controls-row { display: flex; justify-content: space-between; width: 100%; margin-top: 12px; gap: 10px; }
+        .ui-btn { background: linear-gradient(to bottom, #ea580c, #c2410c); border: 2px solid #7c2d12; border-radius: 50%; width: 46px; height: 46px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; box-shadow: 0 4px 6px rgba(0,0,0,0.4); color: white; transition: transform 0.1s; }
+        .ui-btn:active { transform: scale(0.95); }
+        
+        .chat-box { width: 100%; background: rgba(0,0,0,0.6); border-radius: 12px; margin-top: 12px; padding: 10px; }
+        .chat-messages { height: 70px; overflow-y: auto; font-size: 12px; color: #cbd5e1; text-align: left; margin-bottom: 5px; padding: 2px; }
+        .emoji-bar { display: flex; justify-content: space-around; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 6px; margin-bottom: 6px; }
+        .emoji-btn { font-size: 16px; cursor: pointer; background: none; border: none; padding: 2px 6px; }
+        .chat-input-row { display: flex; }
+        .chat-input-row input { flex: 1; background: #262626; border: 1px solid #525252; color: #fff; padding: 8px; border-radius: 6px 0 0 6px; outline: none; font-size: 14px; }
+        .chat-input-row button { background: var(--accent-gold); border: none; padding: 8px 12px; border-radius: 0 6px 6px 0; cursor: pointer; font-weight: bold; font-size: 14px; color: #1e1b4b; }
+        
+        .modal-screen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); align-items: center; justify-content: center; z-index: 100; padding: 15px; }
+        .result-title { font-size: 32px; font-weight: 900; margin-bottom: 10px; }
+        .win-style { color: #f59e0b; }
+        .lose-style { color: #ef4444; }
+        
+        .about-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); align-items: center; justify-content: center; z-index: 200; padding: 15px; }
+        .about-card { background: #141b12; border: 2px solid #22311d; border-radius: 16px; max-width: 440px; width: 100%; padding: 30px 20px 20px; text-align: center; position: relative; box-shadow: 0 15px 40px rgba(0,0,0,0.9); }
+        .about-close { position: absolute; top: 15px; right: 20px; font-size: 22px; color: #6b7280; cursor: pointer; font-weight: bold; background: none; border: none; }
+        .suits { color: #f59e0b; font-size: 18px; margin-bottom: 10px; letter-spacing: 4px; }
+        .about-title { color: #f59e0b; font-size: 24px; font-weight: 800; margin: 0 0 4px; }
+        .about-subtitle { color: #9ca3af; font-size: 13px; margin: 0 0 20px; }
+        .about-desc { color: #cbd5e1; font-size: 14px; line-height: 1.6; margin-bottom: 25px; padding: 0 10px; }
+        .features-row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 25px; }
+        .feature-badge { background: #1c2719; border: 1px solid #2e3f29; border-radius: 20px; padding: 8px 12px; font-size: 12px; font-weight: 600; color: #e2e8f0; display: flex; align-items: center; gap: 6px; flex: 1; justify-content: center; }
+        .copyright { color: #4b5563; font-size: 11px; border-top: 1px solid #222; padding-top: 15px; }
+        
+        #fxCanvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 150; }
+        @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+    </style>
 </head>
 <body>
 
     <audio id="bgMusic" loop src="bg-music.mp3"></audio>
     <canvas id="fxCanvas"></canvas>
 
-    <!-- Роскошное Главное Меню -->
+    <!-- Главное Меню -->
     <div id="menuScreen" class="container-box">
         <h1>ШАШКИ от SANI GROUP</h1>
         <div class="creator-tag" onclick="openAboutModal()">ИНФОРМАЦИЯ О СТУДИИ ℹ️</div>
@@ -36,18 +109,25 @@
         </div>
     </div>
 
-    <!-- Экран ожидания подключения друга -->
+    <!-- Экран ожидания (Online) -->
     <div id="waitingScreen" class="container-box" style="display: none;">
-        <h1>СТОЛ СОЗДАН</h1>
-        <div class="creator-tag">by SANI GROUP</div>
-        <p style="color: #a1a1aa; margin-bottom: 5px;">Передайте этот цифровой код другу:</p>
+        <h1 style="font-size: 22px;">СТОЛ СОЗДАН</h1>
+        <div style="font-size: 11px; color:#a1a1aa; margin-top:5px;">by SANI GROUP</div>
+        
+        <div style="margin-top: 30px; font-size: 14px; color:#e4e4e7;">Передайте этот цифровой код другу:</div>
         <div id="generatedCode" class="room-code-display">----</div>
-        <p style="color: #fde047; font-size: 14px; font-weight: bold;">Ожидание подключения соперника...</p>
+        
+        <button class="menu-btn" onclick="copyRoomCode()">📋 СКОПИРОВАТЬ</button>
+        
+        <div style="margin: 25px 0 15px; font-size: 14px; color: var(--accent-gold); animation: pulse 1.5s infinite;">
+            Ожидание подключения соперника...
+        </div>
+        
         <button class="menu-btn secondary" onclick="backToMenu()">ОТМЕНА</button>
     </div>
 
-    <!-- Игровой Экран -->
-    <div id="gameScreen" class="game-wrapper">
+    <!-- Игровой интерфейс -->
+    <div id="gameWrapper" class="game-wrapper">
         <div class="vs-panel">
             <div class="player-card">
                 <div class="player-avatar">👑</div>
@@ -55,61 +135,59 @@
             </div>
             <div class="vs-text">VS</div>
             <div class="player-card">
-                <div class="player-avatar">👑</div>
-                <div class="player-name" id="p2Name">СОПЕРНИК</div>
+                <div class="player-avatar">🤖</div>
+                <div class="player-name" id="p2Name">БОТ</div>
             </div>
         </div>
-
-        <div id="statusUpdate" style="margin-bottom: 10px; font-weight: bold; color: #fde047; font-size: 14px;"></div>
 
         <div class="board-container">
-            <canvas id="boardCanvas" width="400" height="400"></canvas>
+            <canvas id="checkerBoard" width="400" height="400"></canvas>
         </div>
 
-        <div class="chat-box" id="chatBox">
-            <div class="chat-messages" id="chatMessages"></div>
-            <div class="emoji-bar">
-                <button class="emoji-btn" onclick="sendQuickEmoji('👍')">👍</button>
-                <button class="emoji-btn" onclick="sendQuickEmoji('🔥')">🔥</button>
-                <button class="emoji-btn" onclick="sendQuickEmoji('😂')">😂</button>
-                <button class="emoji-btn" onclick="sendQuickEmoji('🤝')">🤝</button>
-                <button class="emoji-btn" onclick="sendQuickEmoji('👑')">👑</button>
-                <button class="emoji-btn" onclick="sendQuickEmoji('😎')">😎</button>
-            </div>
-            <div class="chat-input-row">
-                <input type="text" id="chatInput" placeholder="Сообщение...">
-                <button onclick="sendChatMessage()">ОТПРАВИТЬ</button>
-            </div>
-        </div>
-
-        <!-- Нижний ряд кнопок управления внутри игры -->
         <div class="controls-row">
-            <button class="ui-btn" onclick="backToMenu()" title="В меню">☰</button>
-            <button class="ui-btn" id="musicToggleBtn" onclick="toggleMusic()" title="Вкл/Выкл Музыку">🎵</button>
-            <button class="ui-btn" onclick="toggleChat()" title="Чат">💬</button>
+            <button class="ui-btn" onclick="backToMenu()">☰</button>
+            <button class="ui-btn" onclick="toggleMusic()">🎵</button>
+            <button class="ui-btn" onclick="resetLocalGame()">🔄</button>
+        </div>
+
+        <!-- Чат и Эмодзи -->
+        <div class="chat-box">
+            <div class="emoji-bar">
+                <button class="emoji-btn" onclick="sendEmoji('👍')">👍</button>
+                <button class="emoji-btn" onclick="sendEmoji('🔥')">🔥</button>
+                <button class="emoji-btn" onclick="sendEmoji('😂')">😂</button>
+                <button class="emoji-btn" onclick="sendEmoji('🤝')">🤝</button>
+                <button class="emoji-btn" onclick="sendEmoji('👑')">👑</button>
+                <button class="emoji-btn" onclick="sendEmoji('😎')">😎</button>
+            </div>
+            <div id="chatMessages" class="chat-messages"></div>
+            <div class="chat-input-row">
+                <input type="text" id="chatInput" placeholder="Напишите сообщение...">
+                <button onclick="sendChatMessage()">💬</button>
+            </div>
         </div>
     </div>
 
-    <!-- Экран Конца Игры -->
-    <div id="gameOverScreen" class="modal-screen">
-        <div class="container-box" style="background: #1c1917;">
-            <div id="resultTitle" class="result-title">КОНЕЦ ИГРЫ</div>
-            <p id="resultText" style="color: #a8a29e; margin-bottom: 25px;">Партия завершена</p>
-            <button class="menu-btn" id="rematchBtn" onclick="requestRematch()">🔄 ПРЕДЛОЖИТЬ РЕВАНШ</button>
-            <button class="menu-btn secondary" onclick="backToMenu()">🚪 ВЫЙТИ В МЕНЮ</button>
+    <!-- Экран завершения игры -->
+    <div id="resultModal" class="modal-screen">
+        <div class="container-box" style="max-width: 360px;">
+            <div class="result-title win-style" id="resultTitle">ПОБЕДА!</div>
+            <p id="resultText" style="color:#cbd5e1; margin-bottom:30px;">Вы разгромили соперника!</p>
+            <button class="menu-btn" onclick="resetLocalGame()">🔄 РЕВАНШ</button>
+            <button class="menu-btn secondary" onclick="backToMenu()">🚪 В МЕНЮ</button>
         </div>
     </div>
 
-    <!-- О Создателях SANI GROUP -->
+    <!-- Модальное окно О СТУДИИ -->
     <div id="aboutModal" class="about-modal">
         <div class="about-card">
             <button class="about-close" onclick="closeAboutModal()">✕</button>
             <div class="suits">♠ ♥ ♦ ♣</div>
             <div class="about-title">SANI GROUP</div>
             <div class="about-subtitle">Команда основателей и разработчиков</div>
-            <div class="about-desc">
+            <p class="about-desc">
                 Мы создали эту интерактивную версию культовой настольной игры, чтобы вы могли с максимальным комфортом играть по сети с друзьями по всему миру или тренироваться в битвах с умными ботами.
-            </div>
+            </p>
             <div class="features-row">
                 <div class="feature-badge">⚡ Стабильный сокет</div>
                 <div class="feature-badge">🎨 Стильный дизайн</div>
@@ -119,24 +197,308 @@
         </div>
     </div>
 
-    <script src="client.js"></script>
     <script>
+        // Заглушка WebSocket
+        let ws = { send: function(msg) { console.log("WS Отправлено:", msg); } };
+        let isMusicPlaying = false;
+        let gameMode = 'bot'; 
+        
         function toggleRules() {
             const panel = document.getElementById('rulesPanel');
             panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
         }
+
+        function openAboutModal() { document.getElementById('aboutModal').style.display = 'flex'; }
+        function closeAboutModal() { document.getElementById('aboutModal').style.display = 'none'; }
+
         function createOnlineRoom() {
             document.getElementById('menuScreen').style.display = 'none';
             document.getElementById('waitingScreen').style.display = 'block';
+            
+            const randomCode = Math.floor(1000 + Math.random() * 9000);
+            document.getElementById('generatedCode').innerText = randomCode;
+            
             ws.send(JSON.stringify({ type: 'CREATE_ROOM' }));
+            
+            setTimeout(() => {
+                if(document.getElementById('waitingScreen').style.display === 'block') {
+                    alert('Игрок подключился! (Демонстрация)');
+                    startGame('online');
+                }
+            }, 4000);
         }
+
         function joinOnlineRoom() {
             const code = document.getElementById('roomCodeInput').value.trim();
             if(code.length !== 4) { alert('Введите 4 цифры кода стола!'); return; }
             ws.send(JSON.stringify({ type: 'JOIN_ROOM', roomCode: code }));
+            startGame('online');
         }
-        function openAboutModal() { document.getElementById('aboutModal').style.display = 'flex'; }
-        function closeAboutModal() { document.getElementById('aboutModal').style.display = 'none'; }
+
+        function copyRoomCode() {
+            const codeText = document.getElementById('generatedCode').innerText;
+            if(codeText === '----') return;
+            navigator.clipboard.writeText(codeText).then(() => {
+                alert('Цифровой код стола ' + codeText + ' успешно скопирован!');
+            }).catch(err => { console.error('Ошибка копирования:', err); });
+        }
+
+        function backToMenu() {
+            document.getElementById('waitingScreen').style.display = 'none';
+            document.getElementById('gameWrapper').style.display = 'none';
+            document.getElementById('resultModal').style.display = 'none';
+            document.getElementById('menuScreen').style.display = 'block';
+        }
+
+        function toggleMusic() {
+            const audio = document.getElementById('bgMusic');
+            if(isMusicPlaying) {
+                audio.pause();
+            } else {
+                audio.play().catch(() => console.log("Добавьте файл bg-music.mp3 для музыки"));
+            }
+            isMusicPlaying = !isMusicPlaying;
+        }
+
+        function sendEmoji(emoji) {
+            const chat = document.getElementById('chatMessages');
+            chat.innerHTML += `<div><b>Вы:</b> ${emoji}</div>`;
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        function sendChatMessage() {
+            const input = document.getElementById('chatInput');
+            if(!input.value.trim()) return;
+            const chat = document.getElementById('chatMessages');
+            chat.innerHTML += `<div><b>Вы:</b> ${input.value}</div>`;
+            chat.scrollTop = chat.scrollHeight;
+            input.value = '';
+        }
+
+        // --- ДВИЖОК ШАШЕК ---
+        const canvas = document.getElementById('checkerBoard');
+        const ctx = canvas.getContext('2d');
+        
+        let board = [];
+        let selectedPiece = null;
+        let turn = 1; 
+
+        function initBoard() {
+            board = Array(8).fill(null).map(() => Array(8).fill(0));
+            for (let r = 0; r < 3; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if ((r + c) % 2 === 1) board[r][c] = 2;
+                }
+            }
+            for (let r = 5; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if ((r + c) % 2 === 1) board[r][c] = 1;
+                }
+            }
+        }
+
+        function drawBoard() {
+            const tileSize = canvas.width / 8;
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    ctx.fillStyle = (r + c) % 2 === 0 ? '#f5d0a1' : '#5c1d06';
+                    ctx.fillRect(c * tileSize, r * tileSize, tileSize, tileSize);
+
+                    if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
+                        ctx.strokeStyle = '#f59e0b';
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(c * tileSize + 2, r * tileSize + 2, tileSize - 4, tileSize - 4);
+                    }
+
+                    let piece = board[r][c];
+                    if (piece !== 0) {
+                        let centerX = c * tileSize + tileSize / 2;
+                        let centerY = r * tileSize + tileSize / 2;
+                        let radius = tileSize * 0.38;
+
+                        ctx.beginPath();
+                        ctx.arc(centerX + 2, centerY + 3, radius, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+                        ctx.fill();
+
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                        ctx.fillStyle = (piece === 1 || piece === 3) ? '#fef08a' : '#1a0a03';
+                        ctx.fill();
+                        ctx.strokeStyle = (piece === 1 || piece === 3) ? '#b45309' : '#000';
+                        ctx.lineWidth = 3;
+                        ctx.stroke();
+
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, radius * 0.6, 0, Math.PI * 2);
+                        ctx.strokeStyle = (piece === 1 || piece === 3) ? 'rgba(180,83,9,0.5)' : 'rgba(255,255,255,0.1)';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+
+                        if (piece === 3 || piece === 4) {
+                            ctx.font = '20px serif';
+                            ctx.fillStyle = '#f59e0b';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText('👑', centerX, centerY);
+                        }
+                    }
+                }
+            }
+        }
+
+        canvas.addEventListener('click', function(e) {
+            if (gameMode === 'bot' && turn !== 1) return; 
+
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            const c = Math.floor(x / (canvas.width / 8));
+            const r = Math.floor(y / (canvas.height / 8));
+
+            if (board[r][c] === turn || board[r][c] === turn + 2) {
+                selectedPiece = { r, c };
+            } else if (selectedPiece) {
+                if (board[r][c] === 0 && (r + c) % 2 === 1) {
+                    let moveDone = false;
+                    let diffR = r - selectedPiece.r;
+                    let diffC = c - selectedPiece.c;
+
+                    if (turn === 1 && diffR === -1 && Math.abs(diffC) === 1) {
+                        board[r][c] = board[selectedPiece.r][selectedPiece.c];
+                        board[selectedPiece.r][selectedPiece.c] = 0;
+                        moveDone = true;
+                    } 
+                    else if (Math.abs(diffR) === 2 && Math.abs(diffC) === 2) {
+                        let midR = selectedPiece.r + diffR / 2;
+                        let midC = selectedPiece.c + diffC / 2;
+                        let middlePiece = board[midR][midC];
+                        
+                        if (middlePiece !== 0 && middlePiece !== turn && middlePiece !== turn + 2) {
+                            board[r][c] = board[selectedPiece.r][selectedPiece.c];
+                            board[selectedPiece.r][selectedPiece.c] = 0;
+                            board[midR][midC] = 0; 
+                            moveDone = true;
+                        }
+                    }
+
+                    if (moveDone) {
+                        if (turn === 1 && r === 0) board[r][c] = 3;
+                        if (turn === 2 && r === 7) board[r][c] = 4;
+
+                        selectedPiece = null;
+                        checkGameOver();
+                        
+                        if(gameMode === 'bot') {
+                            turn = 2;
+                            drawBoard();
+                            setTimeout(makeBotMove, 800);
+                        } else {
+                            turn = turn === 1 ? 2 : 1;
+                        }
+                    }
+                }
+            }
+            drawBoard();
+        });
+
+        function makeBotMove() {
+            let moves = [];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (board[r][c] === 2 || board[r][c] === 4) {
+                        let targets = [
+                            {dr: 1, dc: 1}, {dr: 1, dc: -1},
+                            {dr: 2, dc: 2}, {dr: 2, dc: -2},
+                            {dr: -2, dc: 2}, {dr: -2, dc: -2}
+                        ];
+                        targets.forEach(t => {
+                            let nr = r + t.dr;
+                            let nc = c + t.dc;
+                            if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && board[nr][nc] === 0) {
+                                if (Math.abs(t.dr) === 1 && t.dr === 1) { 
+                                    moves.push({from: {r, c}, to: {r: nr, c: nc}, kill: null});
+                                } else if (Math.abs(t.dr) === 2) { 
+                                    let mr = r + t.dr/2;
+                                    let mc = c + t.dc/2;
+                                    if (board[mr][mc] === 1 || board[mr][mc] === 3) {
+                                        moves.push({from: {r, c}, to: {r: nr, c: nc}, kill: {r: mr, c: mc}});
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+
+            if (moves.length > 0) {
+                let kills = moves.filter(m => m.kill !== null);
+                let finalMove = kills.length > 0 ? kills[Math.floor(Math.random() * kills.length)] : moves[Math.floor(Math.random() * moves.length)];
+                
+                board[finalMove.to.r][finalMove.to.c] = board[finalMove.from.r][finalMove.from.c];
+                board[finalMove.from.r][finalMove.from.c] = 0;
+                if (finalMove.kill) {
+                    board[finalMove.kill.r][finalMove.kill.c] = 0;
+                }
+                
+                if (finalMove.to.r === 7) board[finalMove.to.r][finalMove.to.c] = 4;
+            }
+            
+            turn = 1;
+            checkGameOver();
+            drawBoard();
+        }
+
+        function checkGameOver() {
+            let p1Count = 0, p2Count = 0;
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (board[r][c] === 1 || board[r][c] === 3) p1Count++;
+                    if (board[r][c] === 2 || board[r][c] === 4) p2Count++;
+                }
+            }
+            if (p1Count === 0) showResult(false);
+            else if (p2Count === 0) showResult(true);
+        }
+
+        function showResult(isWin) {
+            const modal = document.getElementById('resultModal');
+            const title = document.getElementById('resultTitle');
+            const text = document.getElementById('resultText');
+            
+            if(isWin) {
+                title.innerText = "ПОБЕДА!";
+                title.className = "result-title win-style";
+                text.innerText = "Вы разгромили соперника!";
+            } else {
+                title.innerText = "ПОРАЖЕНИЕ";
+                title.className = "result-title lose-style";
+                text.innerText = "В следующий раз повезет больше!";
+            }
+            modal.style.display = 'flex';
+        }
+
+        function startGame(mode) {
+            gameMode = mode;
+            document.getElementById('menuScreen').style.display = 'none';
+            document.getElementById('waitingScreen').style.display = 'none';
+            document.getElementById('gameWrapper').style.display = 'flex';
+            
+            document.getElementById('p2Name').innerText = mode === 'bot' ? 'РОБОТ БОТ' : 'ИГРОК (ОНЛАЙН)';
+            
+            initBoard();
+            drawBoard();
+        }
+
+        function resetLocalGame() {
+            document.getElementById('resultModal').style.display = 'none';
+            initBoard();
+            turn = 1;
+            drawBoard();
+        }
     </script>
 </body>
 </html>
