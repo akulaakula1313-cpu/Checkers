@@ -16,6 +16,12 @@
         <h1>ШАШКИ от SANI GROUP</h1>
         <div class="creator-tag" onclick="openAboutModal()">ИНФОРМАЦИЯ О СТУДИИ ℹ️</div>
         
+        <!-- Ввод никнейма игрока -->
+        <div style="margin-bottom: 20px; text-align: left;">
+            <label style="font-size: 13px; color: var(--accent-gold); font-weight: bold; display: block; margin-bottom: 6px;">ВАШ НИКНЕЙМ:</label>
+            <input type="text" id="nicknameInput" class="code-input" placeholder="Введите ваш ник..." maxlength="12" style="font-size: 16px; padding: 10px; letter-spacing: 0.5px;">
+        </div>
+
         <button class="menu-btn" onclick="startGame('bot')">🤖 ИГРАТЬ С БОТОМ</button>
         <button class="menu-btn" onclick="createOnlineRoom()">✨ СОЗДАТЬ СТОЛ (ONLINE)</button>
         
@@ -126,14 +132,18 @@
             panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
         }
         function createOnlineRoom() {
+            const nickname = document.getElementById('nicknameInput').value.trim();
+            localStorage.setItem('savedNickname', nickname);
             document.getElementById('menuScreen').style.display = 'none';
             document.getElementById('waitingScreen').style.display = 'block';
-            ws.send(JSON.stringify({ type: 'CREATE_ROOM' }));
+            ws.send(JSON.stringify({ type: 'CREATE_ROOM', nickname: nickname }));
         }
         function joinOnlineRoom() {
             const code = document.getElementById('roomCodeInput').value.trim();
             if(code.length !== 4) { alert('Введите 4 цифры кода стола!'); return; }
-            ws.send(JSON.stringify({ type: 'JOIN_ROOM', roomCode: code }));
+            const nickname = document.getElementById('nicknameInput').value.trim();
+            localStorage.setItem('savedNickname', nickname);
+            ws.send(JSON.stringify({ type: 'JOIN_ROOM', roomCode: code, nickname: nickname }));
         }
         function openAboutModal() { document.getElementById('aboutModal').style.display = 'flex'; }
         function closeAboutModal() { document.getElementById('aboutModal').style.display = 'none'; }

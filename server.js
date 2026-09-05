@@ -128,6 +128,7 @@ function getValidMove(board, from, to, color) {
     }
 }
 
+// Fixed missing parameter and interpolation format
 function checkGameOver(board, nextTurnColor) {
     let hasWhitePieces = false;
     let hasBlackPieces = false;
@@ -169,16 +170,59 @@ function checkGameOver(board, nextTurnColor) {
 wss.on('connection', (ws) => {
     let currentRoomCode = null;
     let myColor = null;
+    let myPlayerId = null;
 
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
 
+            if (data.type === 'RECONNECT') {
+                const room = rooms[data.roomCode];
+                if (room && room.playerIds && room.playerIds[data.playerId]) {
+                    currentRoomCode = data.roomCode;
+                    myPlayerId = data.playerId;
+                    myColor = room.playerIds[myPlayerId];
+                    room.players[myColor] = ws; 
+
+                    if (room.disconnectTimeouts && room.disconnectTimeouts[myColor]) {
+                        clearTimeout(room.disconnectTimeouts[myColor]);
+                        delete room.disconnectTimeouts[myColor];
+                    }
+
+                    let oppColor = myColor === 'w' ? 'b' : 'w';
+                    if (room.players[oppColor] && room.players[oppColor].readyState === WebSocket.OPEN) {
+                        room.players[oppColor].send(JSON.stringify({ type: 'OPPONENT_RECONNECTED' }));
+                    }
+
+                    let caps = getAllCaptures(room.board, myColor).map(m => m.from);
+                    ws.send(JSON.stringify({ 
+                        type: 'STATE_UPDATE', 
+                        board: room.board, 
+                        turn: room.turn, 
+                        mode: room.mode, 
+                        color: myColor, 
+                        roomCode: currentRoomCode,
+                        playerId: myPlayerId,
+                        names: room.names,
+                        mustCapture: caps,
+                        isReconnectSuccess: true
+                    }));
+                } else {
+                    ws.send(JSON.stringify({ type: 'RECONNECT_FAILED' }));
+                }
+                return;
+            }
+
             if (data.type === 'START_GAME' && data.mode === 'bot') {
                 currentRoomCode = 'BOT_' + Math.random().toString(36).substring(2, 7);
                 myColor = 'w';
-                rooms[currentRoomCode] = { mode: 'bot', board: createBoard(), turn: 'w', players: { w: ws }, rematchReady: {} };
-                ws.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'bot', board: rooms[currentRoomCode].board, turn: 'w', mustCapture: [] }));
+                myPlayerId = 'P_' + Math.random().toString(36).substring(2, 9);
+                let pName = data.nickname || 'Игрок';
+                rooms[currentRoomCode] = { 
+                    mode: 'bot', board: createBoard(), turn: 'w', players: { w: ws }, rematchReady: {},
+                    playerIds: { [myPlayerId]: 'w' }, names: { w: pName, b: 'БОТ ИИ' }
+                };
+                ws.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'bot', board: rooms[currentRoomCode].board, turn: 'w', roomCode: currentRoomCode, playerId: myPlayerId, names: rooms[currentRoomCode].names, mustCapture: [] }));
             }
 
             if (data.type === 'CREATE_ROOM') {
@@ -186,8 +230,13 @@ wss.on('connection', (ws) => {
                 while (rooms[code]) { code = generateRoomCode(); } 
                 currentRoomCode = code;
                 myColor = 'w';
-                rooms[code] = { mode: 'pvp', board: createBoard(), turn: 'w', players: { w: ws, b: null }, rematchReady: {} };
-                ws.send(JSON.stringify({ type: 'WAITING', message: 'Код стола создан', code: code }));
+                myPlayerId = 'P_' + Math.random().toString(36).substring(2, 9);
+                let pName = data.nickname || 'Игрок 1';
+                rooms[code] = { 
+                    mode: 'pvp', board: createBoard(), turn: 'w', players: { w: ws, b: null }, rematchReady: {},
+                    playerIds: { [myPlayerId]: 'w' }, disconnectTimeouts: {} , names: { w: pName, b: 'Игрок 2' }
+                };
+                ws.send(JSON.stringify({ type: 'WAITING', message: 'Код стола создан', code: code, playerId: myPlayerId }));
             }
 
             if (data.type === 'JOIN_ROOM') {
@@ -195,40 +244,40 @@ wss.on('connection', (ws) => {
                 if (rooms[code] && rooms[code].mode === 'pvp' && !rooms[code].players.b) {
                     currentRoomCode = code;
                     myColor = 'b';
+                    myPlayerId = 'P_' + Math.random().toString(36).substring(2, 9);
                     rooms[code].players.b = ws;
-                    rooms[code].players.w.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'pvp', board: rooms[code].board, turn: 'w', mustCapture: [] }));
-                    rooms[code].players.b.send(JSON.stringify({ type: 'GAME_STARTED', color: 'b', mode: 'pvp', board: rooms[code].board, turn: 'w', mustCapture: [] }));
+                    rooms[code].playerIds[myPlayerId] = 'b';
+                    if (data.nickname) {
+                        rooms[code].names.b = data.nickname;
+                    }
+                    
+                    rooms[code].players.w.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'pvp', board: rooms[code].board, turn: 'w', roomCode: code, names: rooms[code].names, mustCapture: [] }));
+                    rooms[code].players.b.send(JSON.stringify({ type: 'GAME_STARTED', color: 'b', mode: 'pvp', board: rooms[code].board, turn: 'w', roomCode: code, playerId: myPlayerId, names: rooms[code].names, mustCapture: [] }));
                 } else {
                     ws.send(JSON.stringify({ type: 'WAITING', message: 'Стол не найден или уже занят!' }));
                 }
             }
-
+            
             if (data.type === 'MAKE_MOVE' && currentRoomCode) {
                 const room = rooms[currentRoomCode];
                 if (!room || room.turn !== myColor) return;
-
                 const { from, to } = data;
                 const validMove = getValidMove(room.board, from, to, myColor);
-
                 if (validMove) {
                     let piece = room.board[from.r][from.c];
                     room.board[to.r][to.c] = piece;
                     room.board[from.r][from.c] = null;
-
                     if (validMove.jumped) room.board[validMove.jumped.r][validMove.jumped.c] = null;
-
                     if (myColor === 'w' && to.r === 0) room.board[to.r][to.c] = 'W';
                     if (myColor === 'b' && to.r === 7) room.board[to.r][to.c] = 'B';
-
                     let nextTurn = room.turn === 'w' ? 'b' : 'w';
                     let winner = checkGameOver(room.board, nextTurn);
-
                     if (winner) {
                         sendGameOver(room, winner);
+                        delete rooms[currentRoomCode];
                     } else {
                         room.turn = nextTurn;
                         broadcastState(room);
-
                         if (room.mode === 'bot' && room.turn === 'b') {
                             setTimeout(() => makeBotMove(room), 600);
                         }
@@ -236,26 +285,25 @@ wss.on('connection', (ws) => {
                 } else {
                     let caps = getAllCaptures(room.board, myColor);
                     let mustCapCoords = caps.map(m => m.from);
-                    ws.send(JSON.stringify({ type: 'STATE_UPDATE', board: room.board, turn: room.turn, mode: room.mode, mustCapture: mustCapCoords, isInvalidAttempt: true }));
+                    ws.send(JSON.stringify({ type: 'STATE_UPDATE', board: room.board, turn: room.turn, mode: room.mode, names: room.names, mustCapture: mustCapCoords, isInvalidAttempt: true }));
                 }
             }
-
+            
             if (data.type === 'REQUEST_REMATCH' && currentRoomCode) {
                 const room = rooms[currentRoomCode];
                 if (!room) return;
-
                 if (room.mode === 'bot') {
                     room.board = createBoard();
                     room.turn = 'w';
-                    ws.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'bot', board: room.board, turn: 'w', mustCapture: [] }));
+                    ws.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'bot', board: room.board, turn: 'w', names: room.names, mustCapture: [] }));
                 } else {
                     room.rematchReady[myColor] = true;
                     if (room.rematchReady.w && room.rematchReady.b) {
                         room.board = createBoard();
                         room.turn = 'w';
                         room.rematchReady = {};
-                        room.players.w.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'pvp', board: room.board, turn: 'w', mustCapture: [] }));
-                        room.players.b.send(JSON.stringify({ type: 'GAME_STARTED', color: 'b', mode: 'pvp', board: room.board, turn: 'w', mustCapture: [] }));
+                        room.players.w.send(JSON.stringify({ type: 'GAME_STARTED', color: 'w', mode: 'pvp', board: room.board, turn: 'w', names: room.names, mustCapture: [] }));
+                        room.players.b.send(JSON.stringify({ type: 'GAME_STARTED', color: 'b', mode: 'pvp', board: room.board, turn: 'w', names: room.names, mustCapture: [] }));
                     } else {
                         let oppColor = myColor === 'w' ? 'b' : 'w';
                         if (room.players[oppColor] && room.players[oppColor].readyState === WebSocket.OPEN) {
@@ -264,17 +312,12 @@ wss.on('connection', (ws) => {
                     }
                 }
             }
-
+            
             if (data.type === 'CHAT_MSG' && currentRoomCode) {
                 const room = rooms[currentRoomCode];
                 if (!room || room.mode !== 'pvp') return;
-
-                const payload = JSON.stringify({
-                    type: 'CHAT_MSG',
-                    sender: myColor === 'w' ? 'Белый' : 'Черный',
-                    text: data.text
-                });
-
+                let senderName = myColor === 'w' ? room.names.w : room.names.b;
+                const payload = JSON.stringify({type: 'CHAT_MSG', sender: senderName, text: data.text});
                 if (room.players.w && room.players.w.readyState === WebSocket.OPEN) room.players.w.send(payload);
                 if (room.players.b && room.players.b.readyState === WebSocket.OPEN) room.players.b.send(payload);
             }
@@ -284,11 +327,20 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
         if (currentRoomCode && rooms[currentRoomCode]) {
             const room = rooms[currentRoomCode];
+            if (room.mode === 'bot') {
+                delete rooms[currentRoomCode];
+                return;
+            }
             const oppColor = myColor === 'w' ? 'b' : 'w';
             if (room.players[oppColor] && room.players[oppColor].readyState === WebSocket.OPEN) {
-                room.players[oppColor].send(JSON.stringify({ type: 'OPPONENT_DISCONNECTED' }));
+                room.players[oppColor].send(JSON.stringify({ type: 'OPPONENT_DISCONNECTED_TEMPORARILY' }));
             }
-            delete rooms[currentRoomCode];
+            room.disconnectTimeouts[myColor] = setTimeout(() => {
+                if (room.players[oppColor] && room.players[oppColor].readyState === WebSocket.OPEN) {
+                    room.players[oppColor].send(JSON.stringify({ type: 'OPPONENT_DISCONNECTED' }));
+                }
+                delete rooms[currentRoomCode];
+            }, 60000);
         }
     });
 });
@@ -304,10 +356,10 @@ function broadcastState(room) {
     let capsW = getAllCaptures(room.board, 'w').map(m => m.from);
     let capsB = getAllCaptures(room.board, 'b').map(m => m.from);
     if (room.players.w && room.players.w.readyState === WebSocket.OPEN) {
-        room.players.w.send(JSON.stringify({ type: 'STATE_UPDATE', board: room.board, turn: room.turn, mode: room.mode, mustCapture: capsW }));
+        room.players.w.send(JSON.stringify({ type: 'STATE_UPDATE', board: room.board, turn: room.turn, mode: room.mode, names: room.names, mustCapture: capsW }));
     }
     if (room.players.b && room.players.b.readyState === WebSocket.OPEN) {
-        room.players.b.send(JSON.stringify({ type: 'STATE_UPDATE', board: room.board, turn: room.turn, mode: room.mode, mustCapture: capsB }));
+        room.players.b.send(JSON.stringify({ type: 'STATE_UPDATE', board: room.board, turn: room.turn, mode: room.mode, names: room.names, mustCapture: capsB }));
     }
 }
 

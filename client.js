@@ -12,12 +12,13 @@ const resultText = document.getElementById('resultText');
 const rematchBtn = document.getElementById('rematchBtn');
 const bgMusic = document.getElementById('bgMusic');
 const musicToggleBtn = document.getElementById('musicToggleBtn');
+const nicknameInput = document.getElementById('nicknameInput');
 
 const fxCanvas = document.getElementById('fxCanvas');
 const fxCtx = fxCanvas.getContext('2d');
 
 const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-const ws = new WebSocket(`${protocol}${window.location.host}`);
+let ws;
 
 let board = null;
 let myColor = null;
@@ -26,16 +27,183 @@ let selectedPiece = null;
 let fireworks = [];
 let fireworkTimer = null;
 let lastMoveState = null; 
-let mustCapturePieces = []; // Массив для хранения шашек, обязанных бить
+let mustCapturePieces = []; 
+let activeRoomCode = localStorage.getItem('activeRoomCode');
+let savedPlayerId = localStorage.getItem('savedPlayerId');
 
-const virtualBoardSize = 400;
-const cellSize = virtualBoardSize / 8;
+// Реальный физический размер доски, который подстраивается под экран устройства
+let currentBoardSize = 400;
+let cellSize = currentBoardSize / 8;
+
+if (nicknameInput) {
+    nicknameInput.value = localStorage.getItem('savedNickname') || '';
+}
+
+// Новая умная функция: динамически рассчитывает размер доски под размер экрана
+function resizeBoardCanvas() {
+    const container = document.querySelector('.board-container');
+    if (!container) return;
+    
+    // Берем ширину родительского контейнера, который ограничен в CSS (max-width: 420px)
+    const size = container.clientWidth || 400; 
+    
+    // Устанавливаем внутреннее разрешение холста и его стили под экран устройства
+    canvas.width = size;
+    canvas.height = size;
+    
+    currentBoardSize = size;
+    cellSize = size / 8;
+    
+    // Перерисовываем доску с новыми размерами ячеек, чтобы графика не ломалась
+    drawBoard();
+}
 
 function resizeFxCanvas() {
     fxCanvas.width = window.innerWidth;
     fxCanvas.height = window.innerHeight;
 }
-window.addEventListener('resize', resizeFxCanvas);
+
+// Автоматически адаптируем графику при повороте телефона или изменении размера окна ПК
+window.addEventListener('resize', () => {
+    resizeBoardCanvas();
+    resizeFxCanvas();
+});
+
+function initWebSocket() {
+    ws = new WebSocket(`${protocol}${window.location.host}`);
+
+    ws.onopen = () => {
+        if (activeRoomCode && savedPlayerId) {
+            statusUpdate.innerText = 'ВОССТАНОВЛЕНИЕ СОЕДИНЕНИЯ...';
+            ws.send(JSON.stringify({ type: 'RECONNECT', roomCode: activeRoomCode, playerId: savedPlayerId }));
+        }
+    };
+
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'WAITING') {
+            statusUpdate.innerText = data.message;
+            if(data.code) { document.getElementById('generatedCode').innerText = data.code; }
+            if(data.playerId) {
+                localStorage.setItem('savedPlayerId', data.playerId);
+                savedPlayerId = data.playerId;
+            }
+        } else if (data.type === 'GAME_STARTED' || data.type === 'STATE_UPDATE') {
+            menuScreen.style.display = 'none';
+            document.getElementById('waitingScreen').style.display = 'none';
+            
+            gameOverScreen.style.display = 'none';
+            gameScreen.style.display = 'flex';
+            stopFireworks();
+            
+            rematchBtn.innerText = '🔄 ПРЕДЛОЖИТЬ РЕВАНШ';
+            rematchBtn.disabled = false;
+            rematchBtn.style.background = ''; 
+
+            let oldBoardStr = JSON.stringify(board);
+            board = data.board;
+            let newBoardStr = JSON.stringify(board);
+
+            if (data.turn !== currentTurn && data.turn === myColor) {
+                playTurnSound();
+            } 
+            else if (currentTurn === myColor && lastMoveState === 'sent' && oldBoardStr === newBoardStr) {
+                playErrorSound();
+            }
+            
+            lastMoveState = 'received';
+            currentTurn = data.turn;
+            if (data.color) myColor = data.color;
+
+            mustCapturePieces = data.mustCapture || [];
+
+            if (data.roomCode) {
+                localStorage.setItem('activeRoomCode', data.roomCode);
+                activeRoomCode = data.roomCode;
+            }
+            if (data.playerId) {
+                localStorage.setItem('savedPlayerId', data.playerId);
+                savedPlayerId = data.playerId;
+            }
+
+            if (data.names) {
+                let myName = myColor === 'w' ? data.names.w : data.names.b;
+                let oppName = myColor === 'w' ? data.names.b : data.names.w;
+                document.getElementById('p1Name').innerText = `${myName} (ВЫ)`;
+                document.getElementById('p2Name').innerText = data.mode === 'bot' ? 'БОТ ИИ' : oppName;
+            }
+
+            if (data.isInvalidAttempt && mustCapturePieces.length > 0) {
+                statusUpdate.innerText = 'ОБЯЗАТЕЛЬНЫЙ БОЙ! ВЫ ОБЯЗАНЫ БИТЬ!';
+                statusUpdate.style.color = '#ef4444'; 
+            } else {
+                statusUpdate.innerText = currentTurn === myColor ? 'ВАШ ХОД!' : 'ОЖИДАНИЕ ХОДА...';
+                statusUpdate.style.color = '#fde047'; 
+            }
+
+            // Подстраиваем размеры перед отрисовкой
+            setTimeout(resizeBoardCanvas, 0);
+        } else if (data.type === 'CHAT_MSG') {
+            const msgHtml = `<div><b>${data.sender}:</b> ${data.text}</div>`;
+            chatMessages.innerHTML += msgHtml;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        } else if (data.type === 'GAME_OVER') {
+            gameOverScreen.style.display = 'flex';
+            clearGameSession(); 
+            if (data.result === 'WIN') {
+                resultTitle.innerText = '🎉 ПОБЕДА! 🎉';
+                resultTitle.className = 'result-title win-style';
+                resultText.innerText = 'Вы полностью сокрушили соперника!';
+                playWinSound();
+                startFireworks();
+            } else {
+                resultTitle.innerText = '💀 ПОРАЖЕНИЕ 💀';
+                resultTitle.className = 'result-title lose-style';
+                resultText.innerText = 'В следующий раз точно повезет!';
+                playLoseSound();
+            }
+        } else if (data.type === 'REMATCH_REQUESTED') {
+            rematchBtn.innerText = '⚡ СОПЕРНИК ХОЧЕТ РЕВАНШ! НАЖМИТЕ';
+            rematchBtn.style.background = 'linear-gradient(to bottom, #10b981, #047857)'; 
+        } else if (data.type === 'OPPONENT_DISCONNECTED_TEMPORARILY') {
+            statusUpdate.innerText = 'Соперник отключился. Ожидание возвращения (1м)...';
+            statusUpdate.style.color = '#f97316';
+        } else if (data.type === 'OPPONENT_RECONNECTED') {
+            statusUpdate.innerText = 'Соперник вернулся в игру!';
+            statusUpdate.style.color = '#22c55e';
+            setTimeout(() => {
+                statusUpdate.innerText = currentTurn === myColor ? 'ВАШ ХОД!' : 'ОЖИДАНИЕ ХОДА...';
+                statusUpdate.style.color = '#fde047';
+            }, 2000);
+        } else if (data.type === 'OPPONENT_DISCONNECTED') {
+            statusUpdate.innerText = 'Соперник покинул игру.';
+            rematchBtn.innerText = '❌ РЕВАНШ НЕВОЗМОЖЕН';
+            rematchBtn.disabled = true;
+            clearGameSession();
+        } else if (data.type === 'RECONNECT_FAILED') {
+            clearGameSession();
+            backToMenu();
+        }
+    };
+
+    ws.onclose = () => {
+        if (activeRoomCode && savedPlayerId) {
+            statusUpdate.innerText = 'ИНТЕРНЕТ ПОТЕРЯН. ПЕРЕПОДКЛЮЧЕНИЕ...';
+            statusUpdate.style.color = '#ef4444';
+            setTimeout(initWebSocket, 2000);
+        }
+    };
+}
+
+function clearGameSession() {
+    localStorage.removeItem('activeRoomCode');
+    localStorage.removeItem('savedPlayerId');
+    activeRoomCode = null;
+    savedPlayerId = null;
+}
+
+initWebSocket();
 resizeFxCanvas();
 
 function toggleMusic() {
@@ -80,8 +248,8 @@ function playErrorSound() {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         let osc = audioCtx.createOscillator();
         let gain = audioCtx.createGain();
-        osc.type = 'sawtooth'; 
-        osc.frequency.setValueAtTime(130, audioCtx.currentTime); 
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(130, audioCtx.currentTime);
         gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
         gain.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
         osc.connect(gain); gain.connect(audioCtx.destination);
@@ -102,7 +270,6 @@ function playWinSound() {
             osc.connect(gain); gain.connect(audioCtx.destination);
             osc.start(); osc.stop(audioCtx.currentTime + 0.8);
         });
-
         for (let i = 0; i < 40; i++) {
             setTimeout(() => {
                 let bufferSize = audioCtx.sampleRate * 0.08;
@@ -112,7 +279,8 @@ function playWinSound() {
                 let noise = audioCtx.createBufferSource();
                 noise.buffer = buffer;
                 let filter = audioCtx.createBiquadFilter();
-                filter.type = 'bandpass'; filter.frequency.value = 1000;
+                filter.type = 'bandpass'; 
+                filter.frequency.value = 1000;
                 let noiseGain = audioCtx.createGain();
                 noiseGain.gain.setValueAtTime(0.12, audioCtx.currentTime);
                 noiseGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.06);
@@ -130,7 +298,7 @@ function playLoseSound() {
         let gain = audioCtx.createGain();
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(220, audioCtx.currentTime);
-        osc.frequency.linearRampToValueAtTime(90, audioCtx.currentTime + 0.8); 
+        osc.frequency.linearRampToValueAtTime(90, audioCtx.currentTime + 0.8);
         gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
         gain.gain.linearRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
         osc.connect(gain); gain.connect(audioCtx.destination);
@@ -139,110 +307,49 @@ function playLoseSound() {
 }
 
 function startGame(mode) {
+    clearGameSession();
+    const nickname = nicknameInput ? nicknameInput.value.trim() : '';
+    localStorage.setItem('savedNickname', nickname);
     menuScreen.style.display = 'none';
     gameScreen.style.display = 'flex';
     chatBox.style.display = mode === 'pvp' ? 'block' : 'none';
-    ws.send(JSON.stringify({ type: 'START_GAME', mode }));
+    ws.send(JSON.stringify({ type: 'START_GAME', mode, nickname: nickname }));
     if(bgMusic.paused) { toggleMusic(); }
+    setTimeout(resizeBoardCanvas, 50);
 }
 
-function backToMenu() { window.location.reload(); }
-function toggleChat() { chatBox.style.display = chatBox.style.display === 'block' ? 'none' : 'block'; }
+function backToMenu() {
+    clearGameSession();
+    window.location.reload();
+}
+
+function toggleChat() {
+    chatBox.style.display = chatBox.style.display === 'block' ? 'none' : 'block';
+    setTimeout(resizeBoardCanvas, 50); 
+}
+
 function sendChatMessage() {
     const text = chatInput.value.trim();
     if(!text) return;
     ws.send(JSON.stringify({ type: 'CHAT_MSG', text }));
     chatInput.value = '';
 }
+
 function sendQuickEmoji(emoji) { ws.send(JSON.stringify({ type: 'CHAT_MSG', text: emoji })); }
+
 function requestRematch() {
     rematchBtn.innerText = '⏳ ОЖИДАНИЕ СОПЕРНИКА...';
     rematchBtn.disabled = true;
     ws.send(JSON.stringify({ type: 'REQUEST_REMATCH' }));
 }
 
-ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-
-    if (data.type === 'WAITING') {
-        statusUpdate.innerText = data.message;
-        if(data.code) { document.getElementById('generatedCode').innerText = data.code; }
-    } else if (data.type === 'GAME_STARTED' || data.type === 'STATE_UPDATE') {
-        menuScreen.style.display = 'none';
-        document.getElementById('waitingScreen').style.display = 'none';
-        
-        gameOverScreen.style.display = 'none';
-        gameScreen.style.display = 'flex';
-        stopFireworks();
-        
-        rematchBtn.innerText = '🔄 ПРЕДЛОЖИТЬ РЕВАНШ';
-        rematchBtn.disabled = false;
-        rematchBtn.style.background = ''; 
-
-        let oldBoardStr = JSON.stringify(board);
-        board = data.board;
-        let newBoardStr = JSON.stringify(board);
-
-        if (data.turn !== currentTurn && data.turn === myColor) {
-            playTurnSound();
-        } 
-        else if (currentTurn === myColor && lastMoveState === 'sent' && oldBoardStr === newBoardStr) {
-            playErrorSound();
-        }
-        
-        lastMoveState = 'received';
-        currentTurn = data.turn;
-        if (data.color) myColor = data.color;
-
-        mustCapturePieces = data.mustCapture || [];
-
-        document.getElementById('p1Name').innerText = myColor === 'w' ? 'ВЫ (Белые)' : 'ВЫ (Черные)';
-        document.getElementById('p2Name').innerText = data.mode === 'bot' ? 'БОТ ИИ' : 'ИГРОК';
-
-        if (data.isInvalidAttempt && mustCapturePieces.length > 0) {
-            statusUpdate.innerText = 'ОБЯЗАТЕЛЬНЫЙ БОЙ! ВЫ ОБЯЗАНЫ БИТЬ!';
-            statusUpdate.style.color = '#ef4444'; 
-        } else {
-            statusUpdate.innerText = currentTurn === myColor ? 'ВАШ ХОД!' : 'ОЖИДАНИЕ ХОДА...';
-            statusUpdate.style.color = '#fde047'; 
-        }
-
-        drawBoard();
-    } else if (data.type === 'CHAT_MSG') {
-        const msgHtml = `<div><b>${data.sender}:</b> ${data.text}</div>`;
-        chatMessages.innerHTML += msgHtml;
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    } else if (data.type === 'GAME_OVER') {
-        gameOverScreen.style.display = 'flex';
-        if (data.result === 'WIN') {
-            resultTitle.innerText = '🎉 ПОБЕДА! 🎉';
-            resultTitle.className = 'result-title win-style';
-            resultText.innerText = 'Вы полностью сокрушили соперника!';
-            playWinSound();
-            startFireworks();
-        } else {
-            resultTitle.innerText = '💀 ПОРАЖЕНИЕ 💀';
-            resultTitle.className = 'result-title lose-style';
-            resultText.innerText = 'В следующий раз точно повезет!';
-            playLoseSound();
-        }
-    } else if (data.type === 'REMATCH_REQUESTED') {
-        rematchBtn.innerText = '⚡ СОПЕРНИК ХОЧЕТ РЕВАНШ! НАЖМИТЕ';
-        rematchBtn.style.background = 'linear-gradient(to bottom, #10b981, #047857)';
-    } else if (data.type === 'OPPONENT_DISCONNECTED') {
-        statusUpdate.innerText = 'Соперник покинул игру.';
-        rematchBtn.innerText = '❌ РЕВАНШ НЕВОЗМОЖЕН';
-        rematchBtn.disabled = true;
-    }
-};
-
 canvas.addEventListener('click', (e) => {
     if (!board || currentTurn !== myColor) return;
     const rect = canvas.getBoundingClientRect();
     const clientX = e.clientX - rect.left;
     const clientY = e.clientY - rect.top;
-    const scaleX = virtualBoardSize / rect.width;
-    const scaleY = virtualBoardSize / rect.height;
+    const scaleX = currentBoardSize / rect.width;
+    const scaleY = currentBoardSize / rect.height;
     const virtualX = clientX * scaleX;
     const virtualY = clientY * scaleY;
     let c = Math.floor(virtualX / cellSize);
@@ -266,7 +373,7 @@ canvas.addEventListener('click', (e) => {
 
 function drawBoard() {
     if (!board) return;
-    ctx.clearRect(0, 0, virtualBoardSize, virtualBoardSize);
+    ctx.clearRect(0, 0, currentBoardSize, currentBoardSize);
     for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
             let drawR = (myColor === 'b') ? (7 - r) : r;
@@ -283,24 +390,22 @@ function drawBoard() {
             ctx.strokeStyle = (r + c) % 2 === 0 ? 'rgba(180,100,20,0.06)' : 'rgba(255,255,255,0.04)';
             ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.arc(virtualBoardSize / 2, virtualBoardSize / 2, Math.abs(bx - 100) + by * 0.4, 0, Math.PI * 2);
+            ctx.arc(currentBoardSize / 2, currentBoardSize / 2, Math.abs(bx - 100) + by * 0.4, 0, Math.PI * 2);
             ctx.stroke();
             ctx.restore();
             ctx.strokeStyle = 'rgba(0,0,0,0.12)';
             ctx.lineWidth = 1;
             ctx.strokeRect(bx, by, cellSize, cellSize);
-
             if (currentTurn === myColor) {
                 const isMustCapture = mustCapturePieces.some(p => p.r === r && p.c === c);
                 if (isMustCapture) {
-                    ctx.fillStyle = 'rgba(239, 68, 68, 0.35)'; 
+                    ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';
                     ctx.fillRect(bx, by, cellSize, cellSize);
                     ctx.strokeStyle = '#ef4444';
                     ctx.lineWidth = 1.5;
                     ctx.strokeRect(bx + 1, by + 1, cellSize - 2, cellSize - 2);
                 }
             }
-
             if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
                 ctx.fillStyle = 'rgba(234, 179, 8, 0.45)';
                 ctx.fillRect(bx, by, cellSize, cellSize);
@@ -308,7 +413,6 @@ function drawBoard() {
                 ctx.lineWidth = 2;
                 ctx.strokeRect(bx + 1, by + 1, cellSize - 2, cellSize - 2);
             }
-
             const piece = board[r][c];
             if (piece) {
                 let cx = bx + cellSize / 2;
@@ -329,20 +433,35 @@ function drawBoard() {
                     gradient.addColorStop(0.7, '#1e293b');
                     gradient.addColorStop(1, '#020617');
                 }
-                ctx.beginPath(); ctx.arc(cx, cy, r1, 0, Math.PI * 2);
-                ctx.fillStyle = gradient; ctx.fill(); ctx.restore();
+                ctx.beginPath(); 
+                ctx.arc(cx, cy, r1, 0, Math.PI * 2);
+                ctx.fillStyle = gradient; 
+                ctx.fill(); 
+                ctx.restore();
                 ctx.strokeStyle = piece.toLowerCase() === 'w' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)';
                 ctx.lineWidth = 1.5;
-                ctx.beginPath(); ctx.arc(cx, cy, r1 * 0.72, 0, Math.PI * 2); ctx.stroke();
-                ctx.beginPath(); ctx.arc(cx, cy, r1 * 0.48, 0, Math.PI * 2); ctx.stroke();
-                ctx.beginPath(); ctx.arc(cx, cy, r1 * 0.24, 0, Math.PI * 2); ctx.stroke();
+                ctx.beginPath(); 
+                ctx.arc(cx, cy, r1 * 0.72, 0, Math.PI * 2); 
+                ctx.stroke();
+                ctx.beginPath(); 
+                ctx.arc(cx, cy, r1 * 0.48, 0, Math.PI * 2); 
+                ctx.stroke();
+                ctx.beginPath(); 
+                ctx.arc(cx, cy, r1 * 0.24, 0, Math.PI * 2); 
+                ctx.stroke();
                 let bGrd = ctx.createLinearGradient(cx - r1, cy - r1, cx + r1, cy + r1);
                 bGrd.addColorStop(0, 'rgba(255,255,255,0.22)');
                 bGrd.addColorStop(0.3, 'rgba(255,255,255,0.0)');
-                ctx.beginPath(); ctx.arc(cx, cy, r1 - 1, 0, Math.PI * 2); ctx.fillStyle = bGrd; ctx.fill();
+                ctx.beginPath(); 
+                ctx.arc(cx, cy, r1 - 1, 0, Math.PI * 2); 
+                ctx.fillStyle = bGrd; 
+                ctx.fill();
                 if (piece === 'W' || piece === 'B') {
-                    ctx.font = '16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-                    ctx.fillStyle = '#eab308'; ctx.fillText('👑', cx, cy - 1);
+                    ctx.font = `${cellSize * 0.38}px Arial`; 
+                    ctx.textAlign = 'center'; 
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = '#eab308'; 
+                    ctx.fillText('👑', cx, cy - 1);
                 }
             }
         }
@@ -357,7 +476,8 @@ function createFireworkExplosion(x, y) {
         const angle = Math.random() * Math.PI * 2;
         const speed = Math.random() * 4 + 2;
         fireworks.push({
-            x: x, y: y,
+            x: x, 
+            y: y,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
             alpha: 1,
@@ -373,10 +493,17 @@ function updateFireworksLoop() {
         let p = fireworks[i];
         p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.alpha -= 0.015;
         if (p.alpha <= 0) { fireworks.splice(i, 1); continue; }
-        fxCtx.save(); fxCtx.globalAlpha = p.alpha; fxCtx.fillStyle = p.color;
-        fxCtx.beginPath(); fxCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2); fxCtx.fill(); fxCtx.restore();
+        fxCtx.save(); 
+        fxCtx.globalAlpha = p.alpha; 
+        fxCtx.fillStyle = p.color;
+        fxCtx.beginPath(); 
+        fxCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2); 
+        fxCtx.fill(); 
+        fxCtx.restore();
     }
-    if (fireworks.length > 0 || fireworkTimer !== null) { requestAnimationFrame(updateFireworksLoop); }
+    if (fireworks.length > 0 || fireworkTimer !== null) { 
+        requestAnimationFrame(updateFireworksLoop); 
+    }
 }
 
 function startFireworks() {
@@ -390,6 +517,8 @@ function startFireworks() {
 }
 
 function stopFireworks() {
-    clearInterval(fireworkTimer); fireworkTimer = null; fireworks = [];
+    clearInterval(fireworkTimer); 
+    fireworkTimer = null; 
+    fireworks = [];
     fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
 }
