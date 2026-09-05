@@ -234,16 +234,18 @@ canvas.addEventListener('click', (e) => {
     
     const scaleX = virtualBoardSize / rect.width;
     const scaleY = virtualBoardSize / rect.height;
-    
     const virtualX = clientX * scaleX;
     const virtualY = clientY * scaleY;
     
     let c = Math.floor(virtualX / cellSize);
     let r = Math.floor(virtualY / cellSize);
     
-    if (myColor === 'b') { r = 7 - r; c = 7 - c; }
-    const piece = board[r][c];
+    if (myColor === 'b') { 
+        r = 7 - r; 
+        c = 7 - c; 
+    }
     
+    const piece = board[r][c];
     if (piece && piece.toLowerCase() === myColor) {
         selectedPiece = { r, c };
         drawBoard();
@@ -284,6 +286,7 @@ function drawBoard() {
             ctx.strokeStyle = 'rgba(0,0,0,0.12)';
             ctx.lineWidth = 1;
             ctx.strokeRect(bx, by, cellSize, cellSize);
+            
             if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
                 ctx.fillStyle = 'rgba(234, 179, 8, 0.45)';
                 ctx.fillRect(bx, by, cellSize, cellSize);
@@ -291,6 +294,7 @@ function drawBoard() {
                 ctx.lineWidth = 2;
                 ctx.strokeRect(bx + 1, by + 1, cellSize - 2, cellSize - 2);
             }
+            
             const piece = board[r][c];
             if (piece) {
                 let cx = bx + cellSize / 2;
@@ -311,8 +315,11 @@ function drawBoard() {
                     gradient.addColorStop(0.7, '#1e293b');
                     gradient.addColorStop(1, '#020617');
                 }
-                ctx.beginPath(); ctx.arc(cx, cy, r1, 0, Math.PI * 2);
-                ctx.fillStyle = gradient; ctx.fill(); ctx.restore();
+                ctx.beginPath(); 
+                ctx.arc(cx, cy, r1, 0, Math.PI * 2);
+                ctx.fillStyle = gradient; 
+                ctx.fill(); 
+                ctx.restore();
                 ctx.strokeStyle = piece.toLowerCase() === 'w' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)';
                 ctx.lineWidth = 1.5;
                 ctx.beginPath(); ctx.arc(cx, cy, r1 * 0.72, 0, Math.PI * 2); ctx.stroke();
@@ -358,7 +365,9 @@ function updateFireworksLoop() {
         fxCtx.save(); fxCtx.globalAlpha = p.alpha; fxCtx.fillStyle = p.color;
         fxCtx.beginPath(); fxCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2); fxCtx.fill(); fxCtx.restore();
     }
-    if (fireworks.length > 0 || fireworkTimer !== null) { requestAnimationFrame(updateFireworksLoop); }
+    if (fireworks.length > 0 || fireworkTimer !== null) { 
+        requestAnimationFrame(updateFireworksLoop); 
+    }
 }
 
 function startFireworks() {
