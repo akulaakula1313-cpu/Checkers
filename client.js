@@ -198,10 +198,9 @@ ws.onmessage = (event) => {
         statusUpdate.innerText = currentTurn === myColor ? 'ВАШ ХОД!' : 'ОЖИДАНИЕ ХОДА...';
         drawBoard();
     } else if (data.type === 'CHAT_MSG') {
-    const msgHtml = `<div><b>${data.sender}:</b> ${data.text}</div>`;
-    chatMessages.innerHTML += msgHtml;
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-}
+        const msgHtml = `<div><b>${data.sender}:</b> ${data.text}</div>`;
+        chatMessages.innerHTML += msgHtml;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
     } else if (data.type === 'GAME_OVER') {
         gameOverScreen.style.display = 'flex';
         if (data.result === 'WIN') {
