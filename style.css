@@ -115,6 +115,15 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .square.mandatory::after{content:"×";position:absolute;right:6px;top:4px;font-weight:900;font-size:18px;opacity:.95;line-height:1;z-index:2}
 @media(max-width:720px){.series-end-top{order:3;width:100%}.game-actions{flex-wrap:wrap}.game-actions .series-end-top{flex-basis:100%}}
 
+/* Premium modal actions: never fall back to browser-default white buttons. */
+.modal-actions{display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-top:14px}
+.modal-btn{min-height:46px;border-radius:13px;padding:11px 14px;border:1px solid #334155;background:linear-gradient(145deg,#172131,#0d141e);color:#eef2f7;font-weight:800;box-shadow:0 8px 20px #0004;transition:transform .16s,border-color .16s,box-shadow .16s,background .16s}
+.modal-btn:hover{transform:translateY(-1px);border-color:#806329;box-shadow:0 11px 24px #0006}
+.modal-btn:active{transform:translateY(0)}
+.modal-btn.primary{border-color:#d6a43b;background:linear-gradient(145deg,#f0c65b,#a56d1f);color:#201506}
+.modal-btn-secondary{background:linear-gradient(145deg,#182231,#0d141e);border-color:#34445b;color:#e6ebf2}
+.modal .confirm-actions,.modal .form-row{gap:10px}
+
 /* Premium game-over result */
 .gameover-modal{text-align:center;position:relative;padding:4px 2px 2px;overflow:hidden}
 .gameover-modal::before{content:"";position:absolute;width:240px;height:240px;left:50%;top:-150px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(circle,rgba(231,182,74,.22),rgba(231,182,74,0) 68%);pointer-events:none}
@@ -146,3 +155,17 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   .gameover-actions{grid-template-columns:1fr}
   .gameover-actions button{min-height:50px}
 }
+
+/* v2.6.7 server-controlled daily gift + server date */
+.server-date{font-size:11px;color:#aeb9c8;padding:7px 10px;border:1px solid #263548;border-radius:999px;background:#0d141e;white-space:nowrap;font-weight:700}
+.gift-card{border-color:rgba(231,182,74,.34)!important;background-image:linear-gradient(145deg,rgba(231,182,74,.12),transparent 48%),linear-gradient(145deg,#1c2532,#0d141e)!important}
+.gift-card .icon{filter:drop-shadow(0 5px 10px rgba(231,182,74,.25))}
+.daily-gift{text-align:center;padding:4px 2px}
+.daily-gift-icon{width:86px;height:86px;margin:0 auto 12px;border-radius:26px;display:grid;place-items:center;font-size:43px;background:linear-gradient(145deg,#f4cd62,#9b651b);border:1px solid #ffe39a88;box-shadow:0 15px 35px #0007,0 0 30px #e7b64a22}
+.daily-gift h2{margin:0;font-size:29px;letter-spacing:1.5px;background:linear-gradient(#fff,#e7b64a);-webkit-background-clip:text;background-clip:text;color:transparent}
+.daily-gift-date{margin:10px 0 6px;color:#aeb9c8;font-size:13px}.daily-gift-date b{color:#f3d37b}
+.daily-gift-day{margin-top:10px;color:#e7b64a;font-size:11px;font-weight:900;letter-spacing:2px;text-transform:uppercase}
+.daily-gift-reward{margin:7px 0 16px;font-size:27px;font-weight:900;color:#ffe09a}
+.daily-gift-week{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin:0 0 16px}.daily-gift-week span{padding:7px 2px;border:1px solid #29384d;border-radius:10px;background:#0e1621;display:grid;gap:2px}.daily-gift-week b{font-size:10px;color:#9aa8bb}.daily-gift-week small{font-size:10px;color:#dbe2ea}.daily-gift-week span.active{border-color:#e7b64a;background:#241e10;box-shadow:0 0 0 1px #e7b64a33}.daily-gift-week span.claimed{opacity:.72}
+.daily-gift-status{margin:10px 0 12px;padding:10px;border-radius:11px;border:1px solid rgba(231,182,74,.22);background:#171811;color:#ffe09a;font-size:13px;font-weight:800}.daily-gift-status.claimed{border-color:#334155;background:#121923;color:#cbd5e1}.daily-claim{width:100%;margin-top:2px}
+@media(max-width:720px){.server-date{display:none}.daily-gift-week{gap:3px}.daily-gift-week span{padding:6px 1px}.daily-gift h2{font-size:25px}.daily-gift-reward{font-size:24px}}
