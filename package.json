@@ -1,1 +1,20 @@
-{"name":"sani-checkers","version":"2.6.2","private":true,"scripts":{"start":"node server.js","test:engine":"node test_engine.js","test:integration":"node test_integration.js","test:ai-series":"node test_ai_series.js","test:deep":"node test_deep_audit.js","test:race":"node test_race_security.js","test:lifecycle":"node test_lifecycle.js","test:product":"node test_product_audit.js","test:final":"node test_final_audit.js","test":"npm run test:engine && npm run test:integration && npm run test:ai-series && npm run test:deep && npm run test:race && npm run test:lifecycle && npm run test:product && npm run test:final"},"engines":{"node":">=18"}}
+{
+  "name": "sani-checkers",
+  "version": "2.6.4",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test:engine": "node test_engine.js",
+    "test:integration": "node test_integration.js",
+    "test:ai-series": "node test_ai_series.js",
+    "test:deep": "node test_deep_audit.js",
+    "test:race": "node test_race_security.js",
+    "test:lifecycle": "node test_lifecycle.js",
+    "test:product": "node test_product_audit.js",
+    "test:final": "node test_final_audit.js",
+    "test": "npm run test:engine && npm run test:integration && npm run test:ai-series && npm run test:deep && npm run test:race && npm run test:lifecycle && npm run test:product && npm run test:final"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

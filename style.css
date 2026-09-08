@@ -114,3 +114,35 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .square.mandatory .piece{filter:drop-shadow(0 0 7px currentColor);transform:scale(1.03)}
 .square.mandatory::after{content:"×";position:absolute;right:6px;top:4px;font-weight:900;font-size:18px;opacity:.95;line-height:1;z-index:2}
 @media(max-width:720px){.series-end-top{order:3;width:100%}.game-actions{flex-wrap:wrap}.game-actions .series-end-top{flex-basis:100%}}
+
+/* Premium game-over result */
+.gameover-modal{text-align:center;position:relative;padding:4px 2px 2px;overflow:hidden}
+.gameover-modal::before{content:"";position:absolute;width:240px;height:240px;left:50%;top:-150px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(circle,rgba(231,182,74,.22),rgba(231,182,74,0) 68%);pointer-events:none}
+.gameover-icon{width:88px;height:88px;margin:0 auto 14px;border-radius:26px;display:grid;place-items:center;background:linear-gradient(145deg,#f5d16d,#a86e20);border:1px solid rgba(255,224,145,.72);box-shadow:0 14px 34px rgba(0,0,0,.42),0 0 34px rgba(231,182,74,.16);position:relative}
+.gameover-icon::after{content:"";position:absolute;inset:6px;border:1px solid rgba(255,255,255,.25);border-radius:21px}
+.gameover-icon span{font-size:43px;line-height:1;filter:drop-shadow(0 3px 3px #0008);position:relative;z-index:1}
+.gameover-kicker{color:#e7b64a;font-size:10px;font-weight:900;letter-spacing:3px;margin-bottom:7px}
+.gameover-modal h2{margin:0;font-size:30px;letter-spacing:1.5px;background:linear-gradient(#fff,#e7b64a);-webkit-background-clip:text;background-clip:text;color:transparent}
+.gameover-result{margin-top:12px;font-size:17px;font-weight:800;color:#f4f6fa}
+.gameover-label{margin:6px 0 0!important;color:#9ba8ba!important;font-size:13px;line-height:1.5!important}
+.gameover-divider{height:1px;margin:22px 0 18px;background:linear-gradient(90deg,transparent,rgba(231,182,74,.45),transparent)}
+.gameover-actions{display:grid;grid-template-columns:1.35fr 1fr;gap:10px}
+.gameover-actions button{min-height:48px;border-radius:13px;padding:12px 14px;font-weight:800}
+.gameover-primary{display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 10px 24px rgba(165,109,31,.25)}
+.gameover-primary span,.gameover-secondary span{font-size:19px;line-height:1}
+.gameover-secondary{border:1px solid #334155;background:linear-gradient(145deg,#172131,#0d141e);color:#e6ebf2}
+.gameover-secondary:hover{border-color:#806329;background:#172131}
+.is-draw .gameover-icon{background:linear-gradient(145deg,#d7e0eb,#68788d);border-color:#c7d2df66}
+.is-draw .gameover-kicker{color:#cbd5e1}
+.is-draw h2{background:linear-gradient(#fff,#cbd5e1);-webkit-background-clip:text;background-clip:text}
+.is-finished .gameover-icon{background:linear-gradient(145deg,#8d9aad,#394555);border-color:#aeb8c766}
+@media(max-width:520px){
+  .modal{padding:12px}
+  .modal-card{width:min(100%,430px);padding:24px 16px}
+  .gameover-icon{width:76px;height:76px;border-radius:22px;margin-bottom:12px}
+  .gameover-icon span{font-size:36px}
+  .gameover-modal h2{font-size:25px}
+  .gameover-result{font-size:15px}
+  .gameover-actions{grid-template-columns:1fr}
+  .gameover-actions button{min-height:50px}
+}
