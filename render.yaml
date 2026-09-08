@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: sani-checkers
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false

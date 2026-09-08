@@ -1,0 +1,17 @@
+const assert=require('assert'),fs=require('fs');
+const html=fs.readFileSync('index.html','utf8'),css=fs.readFileSync('style.css','utf8'),client=fs.readFileSync('client.js','utf8'),server=fs.readFileSync('server.js','utf8');
+assert(html.includes('name="viewport"')&&!html.includes('user-scalable=no'));
+for(const id of ['board','whiteName','blackName','stakeInfo','bankInfo','moves','resign','drawOffer','endCapture','onlineBar'])assert(html.includes(`id="${id}"`),`missing ${id}`);
+assert(server.includes("const START_POS='b1b1b1b1/1b1b1b1b/b1b1b1b1/8/8/1w1w1w1w/w1w1w1w1/1w1w1w1w w'"));for(const x of ['Реванш','disconnect','никнейм'])assert((client+server).toLowerCase().includes(x.toLowerCase()),`missing ${x}`);
+assert(server.includes("p==='/api/room/rematch'"));assert(server.includes("p==='/api/room/rematch-connect'"));assert(server.includes('DISCONNECT_GRACE'));
+assert(server.includes('nameHistory'));assert(server.includes('SESSION_TTL=3650*24*60*60*1000'));
+assert(client.includes('data-stake'));assert(client.includes('data-bot-stake'));assert(client.includes('result-card'));assert(client.includes('Реванш'));
+assert(css.includes('@media(max-width:720px)'));assert(css.includes('@media(max-width:520px)'));assert(css.includes('safe-area-inset'));assert(css.includes('min-height:44px'));assert(css.includes('touch-action:manipulation'));
+const refs=['style.css','client.js','bg-music.mp3'];for(const f of refs)assert(fs.existsSync(f),`missing asset ${f}`);
+assert(/<audio[^>]*id=\"bgMusic\"[^>]*loop/.test(html),'bgMusic must have loop attribute');
+assert(client.includes('bgMusic.loop=true'),'client must force loop=true');
+assert(client.includes("addEventListener('ended'"),'music must have ended fallback');
+assert(!/setTimeout\([^\n]*(?:music|bgMusic)/i.test(client),'music must not use a fixed-duration timeout');
+assert(!/45000|45000\s*ms|45\s*\*\s*1000/i.test(client),'music must not contain a hardcoded 45-second limit');
+
+console.log('PRODUCT/RESPONSIVE STATIC AUDIT PASS');
