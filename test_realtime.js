@@ -20,6 +20,10 @@ async function main(){try{
  const r2=await request('POST','/api/room/rematch',{roomId:room},cb);assert.equal(r2.status,200);assert.equal(r2.body.ready,true);assert.equal(r2.body.room.status,'playing');
  const rca=await request('POST','/api/room/rematch-connect',{roomId:room},ca);assert.equal(rca.status,200);assert.equal(rca.body.room.id,r2.body.room.id);assert.equal(rca.body.room.status,'playing');
  const rcb=await request('POST','/api/room/rematch-connect',{roomId:room},cb);assert.equal(rcb.status,200);assert.equal(rcb.body.room.id,r2.body.room.id);
- console.log(`REALTIME E2E PASS: chat ${chatMs}ms, move sync, finish, two-sided rematch`);
+ const lr=await request('POST','/api/room/create',{stake:250},ca);assert.equal(lr.status,200);const leaveRoom=lr.body.room.id,leaveUidA=lr.body.uid;
+ const lj=await request('POST','/api/room/join',{roomId:leaveRoom},cb);assert.equal(lj.status,200);const leaveUidB=lj.body.uid;
+ const leaveStarted=Date.now();const lv=await request('POST','/api/room/leave',{roomId:leaveRoom,uid:leaveUidA},ca);assert.equal(lv.status,200);assert.equal(lv.body.room.result,'0-1');assert.equal(lv.body.room.winner,'b');assert(Date.now()-leaveStarted<500,'leave must settle immediately');
+ const ls=await request('GET',`/api/room/sync?roomId=${leaveRoom}&uid=${leaveUidB}`,undefined,cb);assert.equal(ls.body.room.result,'0-1');assert.equal(ls.body.room.winner,'b');
+ console.log(`REALTIME E2E PASS: chat ${chatMs}ms, move sync, finish, two-sided rematch, instant leave`);
 }finally{srv.kill('SIGTERM');await sleep(50);fs.rmSync(DATA,{recursive:true,force:true})}}
 main().catch(e=>{console.error('REALTIME E2E FAIL:',e.stack,'\nSERVER:',output);try{srv.kill('SIGTERM');fs.rmSync(DATA,{recursive:true,force:true})}catch{}process.exit(1)});

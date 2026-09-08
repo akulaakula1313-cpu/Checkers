@@ -23,10 +23,10 @@ for(let g=0;g<80;g++){
 // 3) Rule-specific source assertions for the final UI/engine behavior.
 assert(src.includes('const targetCaptures=new Set(selectedMoves.filter(m=>m.capture!=null).map(m=>m.to));'));
 assert(src.includes("const canEndSeries=st.captureFrom!=null&&myTurn;"));
-assert(src.includes('checkLocalEnd(st);return}try{'));assert(src.includes("sessionStorage.removeItem('saniCheckersRoom');sessionStorage.removeItem('saniCheckersBot');mode='local'"));const html=fs.readFileSync('index.html','utf8');assert(html.includes('client.js?v=2.6.7'));assert(html.includes('id="bgMusic"')&&html.includes(' loop'));
+assert(src.includes('checkLocalEnd(st);return}try{'));assert(src.includes("sessionStorage.removeItem('saniCheckersRoom');sessionStorage.removeItem('saniCheckersBot');mode='local'"));const html=fs.readFileSync('index.html','utf8');assert(html.includes('client.js?v=2.6.8'));assert(html.includes('id="bgMusic"')&&html.includes(' loop'));
 const server=fs.readFileSync('server.js','utf8');assert(server.includes('crypto.randomInt(1000,10000)'));assert(server.includes("join:${clientIp(req)}"));assert(server.includes("bot-start:${clientIp(req)}"));assert(server.includes('Math.min(MAX_STAKE,Math.max(0,Math.floor(user.chips+n)))'));
 assert(!/\b(alert|confirm|prompt)\s*\(/.test(src));
-assert(fs.readFileSync('server.js','utf8').includes("fp!==ROOT&&!fp.startsWith(ROOT+path.sep)"));
+assert(fs.readFileSync('server.js','utf8').includes("fp!==ROOT&&!fp.startsWith(ROOT+path.sep)"));assert(src.includes('startNewFromGame')&&src.includes('forfeitOnlineInBackground'));assert(server.includes('room.leavePlayer=player.name;settleWinner(room)'));assert(!fs.existsSync('e2e-data'));assert(html.includes('favicon.svg'));
 assert(fs.readFileSync('server.js','utf8').includes("const result=gameStatus(n);if(result){room.status='finished'"));
 // 4) Capture target visuals: king landing squares are empty but must still be highlighted.
 x=e.parsePos(e.START_POS);x.board=Array(64).fill(null);x.side='w';x.captureFrom=null;x.board[28]='W';x.board[37]='b';

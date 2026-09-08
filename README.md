@@ -1,4 +1,4 @@
-# SANI CHECKERS v2.6.7 — FINAL
+# SANI CHECKERS v2.6.8 — FINAL
 
 # SANI CHECKERS
 
@@ -104,9 +104,12 @@ npm run test:integration
 - Добавлен отдельный E2E-тест двух онлайн-клиентов: чат, синхронизация хода, завершение партии и двусторонний реванш.
 - Финальный аудит синхронизирован с cache-bust `client.js?v=2.6.7`.
 
-## v2.6.7 — daily gift + server date
+## v2.6.8 — daily gift + server date
 
 - Серверная дата показывается в интерфейсе и профиле.
 - Добавлен ежедневный подарок на 7 дней: 1 000 / 2 000 / 3 000 / 4 000 / 5 000 / 6 000 / 10 000 фишек.
 - День, дата получения и запрет повторной выдачи контролируются сервером.
 - После 7-го дня цикл начинается с Дня 1.
+
+## v2.6.8
+Active online-game Menu/New is an immediate forfeit: the opponent is settled as winner server-side without the disconnect grace period. Realtime polling avoids redundant board/DOM renders; chat advances room revision. A favicon is included.

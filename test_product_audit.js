@@ -5,7 +5,12 @@ for(const id of ['board','whiteName','blackName','stakeInfo','bankInfo','moves',
 assert(server.includes("const START_POS='b1b1b1b1/1b1b1b1b/b1b1b1b1/8/8/1w1w1w1w/w1w1w1w1/1w1w1w1w w'"));for(const x of ['Реванш','disconnect','никнейм'])assert((client+server).toLowerCase().includes(x.toLowerCase()),`missing ${x}`);
 assert(server.includes("p==='/api/room/rematch'"));assert(server.includes("p==='/api/room/rematch-connect'"));assert(server.includes('DISCONNECT_GRACE'));
 assert(server.includes('nameHistory'));assert(server.includes('SESSION_TTL=3650*24*60*60*1000'));
-assert(client.includes('data-stake'));assert(client.includes('data-bot-stake'));assert(client.includes('result-card'));assert(client.includes('Реванш'));assert(client.includes('j.room.rematchRoomId&&!rematchConnecting'), 'client must auto-connect the rematch even while result modal is open');assert(client.includes('modal-btn-secondary')&&client.includes('Войти по коду'), 'online modal actions must use premium buttons');assert(client.includes('staleRoomMenu'), 'stale online session must be handled');
+assert(client.includes('data-stake'));assert(client.includes('data-bot-stake'));assert(client.includes('result-card'));assert(client.includes('Реванш'));assert(client.includes('j.room.rematchRoomId&&!rematchConnecting'), 'client must auto-connect the rematch even while result modal is open');assert(client.includes('startNewFromGame')&&client.includes('forfeitOnlineInBackground'), 'active-game New must forfeit online game immediately');
+assert(server.includes('room.leavePlayer=player.name;settleWinner(room)'), 'active leave must settle winner immediately');
+assert(client.includes('lastOnlineRevision')&&client.includes('changed='), 'polling must avoid redundant board re-renders');
+assert(client.includes('const ONLINE_SYNC_MS=100;'), 'realtime polling target must remain in millisecond range');
+assert(server.includes("room.chat.push({uid:user.id,name:user.name,text,ts:now()});room.revision++"), 'chat must advance revision');
+assert(client.includes('modal-btn-secondary')&&client.includes('Войти по коду'), 'online modal actions must use premium buttons');assert(client.includes('staleRoomMenu'), 'stale online session must be handled');
 assert(css.includes('@media(max-width:720px)'));assert(css.includes('@media(max-width:520px)'));assert(css.includes('safe-area-inset'));assert(css.includes('min-height:44px'));assert(css.includes('touch-action:manipulation'));
 const refs=['style.css','client.js','bg-music.mp3'];for(const f of refs)assert(fs.existsSync(f),`missing asset ${f}`);
 assert(/<audio[^>]*id=\"bgMusic\"[^>]*loop/.test(html),'bgMusic must have loop attribute');

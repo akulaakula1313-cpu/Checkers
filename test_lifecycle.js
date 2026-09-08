@@ -23,5 +23,12 @@ const post=(j,p,b)=>j.req(p,{method:'POST',headers:{'content-type':'application/
   await new Promise(r=>setTimeout(r,330));
   x=await b.req(`/api/room/sync?roomId=${rid}&uid=${uidB2}`);assert.equal(x.j.room.result,'0-1');assert.equal(x.j.room.winner,'b');assert.equal(x.j.room.forfeitReason,'Игрок «Life-A-Renamed» не вернулся в течение 1 минуты');
   const db2=JSON.parse(fs.readFileSync(path.join(dir,'db.json'),'utf8'));assert.equal(db2.users[idA].losses,2);assert.equal(db2.users[idA].chips,98900);
-  console.log('LIFECYCLE/REMATCH/NICKNAME/DISCONNECT PASS');
+  x=await post(a,'/api/room/create',{stake:250});const leaveRoom=x.j.room.id,leaveUidA=x.j.uid;
+  x=await post(b,'/api/room/join',{roomId:leaveRoom});const leaveUidB=x.j.uid;
+  const leaveStarted=Date.now();
+  x=await post(a,'/api/room/leave',{roomId:leaveRoom,uid:leaveUidA});
+  assert.equal(x.j.room.status,'finished');assert.equal(x.j.room.result,'0-1');assert.equal(x.j.room.winner,'b');assert.equal(x.j.room.forfeitReason,'Игрок «Life-A-Renamed» покинул стол');
+  assert(Date.now()-leaveStarted<500,'active leave must settle immediately');
+  x=await b.req(`/api/room/sync?roomId=${leaveRoom}&uid=${leaveUidB}`);assert.equal(x.j.room.result,'0-1');assert.equal(x.j.room.winner,'b');
+  console.log('LIFECYCLE/REMATCH/NICKNAME/DISCONNECT/INSTANT-LEAVE PASS');
 }catch(e){console.error(e);process.exitCode=1}finally{child.kill('SIGTERM');fs.rmSync(dir,{recursive:true,force:true})}})();
