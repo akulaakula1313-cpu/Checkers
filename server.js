@@ -14,7 +14,6 @@ const PORT = Number(process.env.PORT || 3000),
 // нужно считать скомпрометированными и сменить пароль в MongoDB Atlas.
 const MONGO_URI = 'mongodb+srv://akulaakula1313_db_user:eVzH0Leb06TWlySA@cluster0.22ubyfp.mongodb.net/checkers_game?retryWrites=true&w=majority&appName=Cluster0';
 }
-
 mongoose.connect(MONGO_URI)
   .then(() => console.log('SANI DB: Успешно подключено к облаку MongoDB Atlas!'))
   .catch(err => console.error('SANI DB: Ошибка подключения к MongoDB:', err));
