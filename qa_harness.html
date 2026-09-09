@@ -1,0 +1,10 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head><body>
+<script>
+window.fetch=async function(url,opt){
+  if(String(url).includes('/api/auth')) return {ok:true,status:200,headers:{get:()=>null},json:async()=>({ok:true,user:{id:'qa',name:'QA Player',chips:100000,inventory:{boards:['classic'],pieces:['classic'],selectedBoard:'classic',selectedPieces:'classic'},vip:false,wins:0,losses:0,draws:0,rating:1000},store:{boards:[['classic','Классика','Дерево',0]],pieces:[['classic','Classic','Шашки',0]]}})};
+  return {ok:true,status:200,headers:{get:()=>null},json:async()=>({ok:true})};
+};
+</script><div id="root"></div>
+<script src="client.js?v=qa"></script>
+<script>setTimeout(()=>document.querySelector('[data-action="local"]')?.click(),300);</script>
+</body></html>
