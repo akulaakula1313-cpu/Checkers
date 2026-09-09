@@ -12,10 +12,7 @@ const PORT = Number(process.env.PORT || 3000),
 // Никогда не храните реальные логин/пароль от базы прямо в коде, особенно
 // если репозиторий публичный — учётные данные, однажды засветившиеся в коде,
 // нужно считать скомпрометированными и сменить пароль в MongoDB Atlas.
-const MONGO_URI = process.env.MONGO_URI;
-if (!MONGO_URI) {
-  console.error('SANI DB: переменная окружения MONGO_URI не задана. Задайте её (например, в .env) перед запуском.');
-  process.exit(1);
+const MONGO_URI = 'mongodb+srv://akulaakula1313_db_user:eVzH0Leb06TWlySA@cluster0.22ubyfp.mongodb.net/checkers_game?retryWrites=true&w=majority&appName=Cluster0';
 }
 
 mongoose.connect(MONGO_URI)
