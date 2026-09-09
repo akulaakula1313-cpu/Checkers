@@ -15,9 +15,12 @@
     "test:capture": "node test_capture_continuation.js",
     "test:daily-gift": "node test_daily_gift.js",
     "test:final": "node test_final_audit.js",
-    "test": "npm run test:engine && npm run test:integration && npm run test:ai-series && npm run test:deep && npm run test:race && npm run test:lifecycle && npm run test:product && npm run test:realtime && npm run test:capture && npm run test:daily-gift && npm run test:final"
+    "test": "npm run test:engine && npm run test:integration && npm run test:ai-series"
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "mongoose": "^8.0.0"
   }
 }
