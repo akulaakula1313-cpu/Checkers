@@ -45,12 +45,28 @@ button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
  body{padding-bottom:env(safe-area-inset-bottom)}
  .topbar{padding-top:env(safe-area-inset-top);height:calc(62px + env(safe-area-inset-top))}
  .home{width:min(94vw,620px)}
- .game{padding-left:max(8px,env(safe-area-inset-left));padding-right:max(8px,env(safe-area-inset-right))}
+ .game{padding:8px max(8px,env(safe-area-inset-left)) max(8px,env(safe-area-inset-right))}
  .game-top{gap:8px}
  .head-btn{min-width:36px;min-height:36px}
  .game-actions button,.back,.game-buttons button,.primary{min-height:44px}
  .modal{padding:max(10px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left))}
  .modal-card{max-height:calc(100dvh - 24px);overflow:auto}
+ .board-layout{grid-template-columns:1fr;gap:12px}
+ .board-wrap{width:100%;max-width:min(94vw,560px);margin:0 auto}
+ .side-panel{display:grid;width:100%}
+ .game-buttons{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+ .game-buttons #resign,.game-buttons #drawOffer{min-width:0}
+ .player-card.black{order:0}
+ .board-wrap{order:1}
+ .side-panel{order:2;grid-template-columns:1fr 1fr}
+ .side-panel .player-card.white{grid-column:1/-1}
+ .stake-card{grid-column:1/-1}
+ .game-buttons{grid-column:1/-1}
+ .menu-grid{grid-template-columns:1fr 1fr;gap:10px}
+ .mode-card{min-height:118px;padding:16px}
+ .home{padding:30px 0}
+ .hero h1{font-size:clamp(38px,12vw,56px)}
+ .hero{margin-bottom:26px}
 }
 @media(max-width:420px){
  .header-actions{gap:3px}

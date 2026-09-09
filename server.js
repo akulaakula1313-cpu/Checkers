@@ -150,7 +150,34 @@ const aiCache=new Map();
 function chooseBotAction(st,level){let ai=aiCache.get(level);if(!ai){ai=createAI(level);aiCache.set(level,ai)}return ai.choose(st)}
 function chooseBotMove(st,level){const a=chooseBotAction(st,level);return a?.type==='move'?a.move:null}
 function advanceBot(g,st){const rec=[];let n=st,result=gameStatus(n),guard=0;while(!result&&n.side==='b'&&guard++<80){const a=chooseBotAction(n,g.level);if(!a)break;const before=n;n=applyAIAction(n,a);if(a.type==='move')rec.push(moveRecord(a.move,before));result=gameStatus(n);if(n.side!=='b')break}return{st:n,rec,result}}
-const hintCache=new Map();function chooseHint(st){const key=pos(st),hit=hintCache.get(key);if(hit)return hit;let m=chooseBotMove(st,3);if(!m){const a=createAI(3).choose(st);m=a?.type==='move'?a.move:null}if(!m)return null;const r={from:m.from,to:m.to,move:moveRecord(m,st),reason:m.capture!=null?'Взятие выигрывает шашку.': 'Ход улучшает позицию и активность шашки.',threat:m.capture!=null?'Соперник теряет материал.':'Создаётся давление на диагоналях.'};hintCache.set(key,r);if(hintCache.size>256)hintCache.delete(hintCache.keys().next().value);return r}
+const hintCache=new Map();
+function coordName(s){return String.fromCharCode(97+s%8)+(8-Math.floor(s/8))}
+function chooseHint(st){
+  const key=pos(st)+(st.captureFrom!=null?'|c'+st.captureFrom:''),hit=hintCache.get(key);
+  if(hit)return hit;
+  let m=chooseBotMove(st,3);
+  if(!m){const a=createAI(3).choose(st);m=a?.type==='move'?a.move:null}
+  if(!m)return null;
+  const fromName=coordName(m.from),toName=coordName(m.to);
+  const piece=st.board[m.from]||'';
+  const isKing=piece===piece.toUpperCase();
+  const pieceName=isKing?'Дамка':'Шашка';
+  const sideName=st.side==='w'?'белых':'чёрных';
+  let reason,threat;
+  if(m.capture!=null){
+    const captured=st.board[m.capture]||'';
+    const capName=captured===captured.toUpperCase()?'дамку':'шашку';
+    reason=`${pieceName} ${sideName} ${fromName} → ${toName}: берёт ${capName} соперника.`;
+    threat=`После взятия${chooseBotMove({...st,captureFrom:m.to},3)?' можно продолжить серию!':' серия завершается.'}`;
+  }else{
+    reason=`${pieceName} ${sideName} ${fromName} → ${toName}: лучший ход по оценке ИИ.`;
+    threat=`Ход усиливает позицию и открывает тактические возможности.`;
+  }
+  const r={from:m.from,to:m.to,fromName,toName,move:moveRecord(m,st),reason,threat};
+  hintCache.set(key,r);
+  if(hintCache.size>256)hintCache.delete(hintCache.keys().next().value);
+  return r
+}
 function cancelUserGames(userId,reason='Администратор завершил партию'){
   for(const room of rooms.values()){
     const has=Object.values(room.players).some(p=>p.accountId===userId);
