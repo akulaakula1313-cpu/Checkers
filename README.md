@@ -1,4 +1,9 @@
-# SANI CHECKERS v2.6.8 — FINAL
+# SANI CHECKERS v2.6.9 — FINAL
+
+## v2.6.9 — capture continuation selection fix
+- During an active multi-capture series, only the exact piece that made the previous capture can remain selected/continue.
+- Clicking another own piece no longer changes selection during the active series.
+
 
 # SANI CHECKERS
 
@@ -19,7 +24,7 @@
 - Взятие обязательно: если есть хотя бы одно взятие, обычный ход запрещён.
 - Дамка ходит по диагонали на любое число свободных клеток.
 - Дамка берёт фигуру соперника на расстоянии и может выбрать любое свободное поле после неё.
-- После взятия при наличии продолжения игрок может продолжить серию или добровольно нажать «ЗАКОНЧИТЬ СЕРИЮ».
+- После взятия при наличии продолжения игрок обязан продолжить взятие той же шашкой; переключение на другую шашку запрещено.
 - При нескольких вариантах продолжения разрешён любой вариант.
 - При достижении последней линии шашка становится дамкой.
 
@@ -67,7 +72,7 @@ npm run test:integration
 - **1 — Безразрядник:** интуитивный новичок, допустимые ходы с базовым приоритетом взятий и намеренной вариативностью.
 - **2 — 1-й разряд:** тактический альфа-бета поиск, продвижение, активность и приоритет взятий.
 - **3 — Гроссмейстер:** более глубокий позиционно-тактический поиск с таблицей транспозиций, оценкой материала, центра, темпа и дамок.
-- Бот умеет принимать решение **продолжить серию или закончить её**, как требует схема SANI CHECKERS.
+- Бот обязан продолжать серию той же шашкой, пока доступно очередное взятие.
 - Проведена серия автоматических партий между уровнями для калибровки силы.
 
 Бот-матчи поддерживают ставки в виртуальных фишках; сервер является источником истины по списанию и выплатам. Реальные деньги не используются.
@@ -83,9 +88,9 @@ npm run test:integration
 
 ## v2.6.0 — Final audit
 - Проведена расширенная проверка движка и client/server parity на случайных достижимых позициях.
-- Проверены обычные шашки, дамки, обязательное взятие, серии, добровольное завершение серии и превращение.
+- Проверены обычные шашки, дамки, обязательное взятие, серии, обязательное продолжение серии одной шашкой и превращение.
 - Исправлена подсветка всех пустых клеток приземления при дальнем взятии дамкой.
-- После `end-capture` сервер сразу проверяет завершение партии.
+- Серия взятий завершается только естественно: после того как та же шашка больше не может бить, ход автоматически переходит сопернику.
 - Исправлена защита пути статических файлов и устойчивость online polling к устаревшим ответам.
 - Добавлен `START-SANI-CHECKERS.bat` для Windows.
 
@@ -102,7 +107,7 @@ npm run test:integration
 - Онлайн-синхронизация клиентских состояний переведена на цикл с целевым интервалом 80 мс без наложения параллельных запросов.
 - После каждого завершённого sync следующий запрос планируется с учётом фактического времени ответа сервера.
 - Добавлен отдельный E2E-тест двух онлайн-клиентов: чат, синхронизация хода, завершение партии и двусторонний реванш.
-- Финальный аудит синхронизирован с cache-bust `client.js?v=2.6.7`.
+- Финальный аудит синхронизирован с cache-bust `client.js?v=2.7.1`.
 
 ## v2.6.8 — daily gift + server date
 
@@ -113,3 +118,9 @@ npm run test:integration
 
 ## v2.6.8
 Active online-game Menu/New is an immediate forfeit: the opponent is settled as winner server-side without the disconnect grace period. Realtime polling avoids redundant board/DOM renders; chat advances room revision. A favicon is included.
+
+## v2.7.0 — mandatory capture continuation
+- After a capture, the same piece must continue capturing while any legal continuation exists.
+- Players cannot switch to another piece during an active capture sequence.
+- Voluntary `ЗАКОНЧИТЬ СЕРИЮ` was removed completely: no UI control and no legacy endpoint; switching to another piece during a capture series is rejected.
+- The turn changes automatically only when the capturing piece has no further capture.
