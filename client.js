@@ -1,318 +1,60 @@
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const START_POSITION='b1b1b1b1/1b1b1b1b/b1b1b1b1/8/8/1w1w1w1w/w1w1w1w1/1w1w1w1w w';
-let me=null,store=null,mode='menu',position=START_POSITION,selected=null,flipped=false,account=null,botGameId=null,online={room:null,uid:null,side:null},botLevel=2,botStake=0,poll=null,musicOn=false,hintBusy=false,drawPrompted=false,gameOverShown=false,rematchConnecting=false;
-let hintMove=null;
-
-// ===== Постоянное хранилище (переживает закрытие вкладки и сон Render) =====
-const P = window.localStorage;
-
+let me=null,store=null,mode='menu',position=START_POSITION,captureFrom=null,selected=null,flipped=false,account=null,botGameId=null,online={room:null,uid:null,side:null},botLevel=2,botStake=0,poll=null,musicOn=false,hintBusy=false,drawPrompted=false,gameOverShown=false,rematchConnecting=false,hintTarget=null;
 const GL={w:'●',W:'♛',b:'●',B:'♛'};const nameOf=c=>c==='w'?'Белые':'Чёрные';
-function piecesFromPos(s){const [pl,side]=s.split(/\s+/),b=Array(64).fill(null);let r=7,f=0;for(const ch of pl){if(ch==='/'){r--;f=0}else if(/[1-8]/.test(ch))f+=+ch;else b[r*8+f++]=ch}return{board:b,side}}
-
-function api(url,opt={}){
-  const isAuth=String(url).includes('/api/auth');
-  const timeout=isAuth?35000:7000;
-  const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),timeout);
-  return fetch(url,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})},credentials:'same-origin',signal:ctrl.signal,cache:'no-store'})
-    .then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.error||`Ошибка ${r.status}`);e.status=r.status;throw e}return j})
-    .catch(e=>{if(e.name==='AbortError')throw new Error('Сервер отвечает слишком долго');throw e})
-    .finally(()=>clearTimeout(timer));
-}
-
-function openModal(html){$('#modalContent').innerHTML=html;$('#modal').hidden=false}
-function closeModal(){$('#modal').hidden=true;$('#modalContent').innerHTML=''}
-$('#closeModal').onclick=closeModal;
-
-const RULES=`<div class="about-content"><h2>📖 Правила SANI CHECKERS</h2><h3>1. Доска</h3><p>8×8, игра идёт только по тёмным клеткам. В начальной позиции у каждого игрока по 12 шашек: первые три ряда с каждой стороны, по 4 шашки в каждом ряду.</p><h3>2. Простая шашка</h3><p>Ходит по диагонали на одну свободную клетку вперёд. Взятие разрешено вперёд и назад.</p><h3>3. Обязательное взятие</h3><p>Если у игрока есть хотя бы одно взятие, обычный ход запрещён.</p><h3>4. Серия взятий</h3><p>После взятия, если той же шашкой доступно ещё взятие, игрок сам выбирает: продолжить серию или нажать «Закончить серию».</p><h3>5. Несколько вариантов</h3><p>При нескольких продолжениях можно выбрать любой допустимый вариант.</p><h3>6. Дамка</h3><p>При достижении последней линии шашка становится дамкой. Дамка ходит по диагонали на любое число свободных клеток и берёт фигуру соперника на расстоянии.</p><h3>7. Победа</h3><p>Победа — если у соперника не осталось шашек или нет ни одного допустимого хода.</p><h3>8. Онлайн</h3><p>Сервер является источником истины: проверяет обязательное взятие, серии, дамку, результат, ставки и выплаты.</p></div>`;
+/* `position` (FEN-like string) never encodes which piece is mid-capture — that lives in the
+   separate `captureFrom` global, kept in sync with the server everywhere `position` is set.
+   piecesFromPos attaches the current captureFrom so every consumer of the parsed state
+   (render, checkersMoves, clickSquare, hint) sees the real, server-authoritative value. */
+function piecesFromPos(s){const [pl,side]=s.split(/\s+/),b=Array(64).fill(null);let r=7,f=0;for(const ch of pl){if(ch==='/'){r--;f=0}else if(/[1-8]/.test(ch))f+=+ch;else b[r*8+f++]=ch}return{board:b,side,captureFrom}}
+function api(url,opt={}){const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),7000);return fetch(url,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})},credentials:'same-origin',signal:ctrl.signal,cache:'no-store'}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.error||`Ошибка ${r.status}`);e.status=r.status;throw e}return j}).catch(e=>{if(e.name==='AbortError')throw new Error('Сервер отвечает слишком долго');throw e}).finally(()=>clearTimeout(timer))}
+function openModal(html){$('#modalContent').innerHTML=html;$('#modal').hidden=false}function closeModal(){$('#modal').hidden=true;$('#modalContent').innerHTML=''}$('#closeModal').onclick=closeModal;
+const RULES=`<div class="about-content"><h2>📖 Правила SANI CHECKERS</h2><h3>1. Доска</h3><p>8×8, игра идёт только по тёмным клеткам. В начале у каждого игрока по 12 шашек: они занимают первые три ряда с каждой стороны, по 4 шашки в каждом ряду.</p><h3>2. Простая шашка</h3><p>Ходит по диагонали на одну свободную клетку вперёд. Взятие разрешено вперёд и назад.</p><h3>3. Обязательное взятие</h3><p>Если у игрока есть хотя бы одно взятие, обычный ход запрещён.</p><h3>4. Серия взятий</h3><p>После взятия, если той же шашкой доступно ещё взятие, продолжение этой же шашкой обязательно. Переключаться на другую шашку нельзя. Ход переходит сопернику только когда эта шашка больше не может бить.</p><h3>5. Несколько вариантов</h3><p>При нескольких продолжениях можно выбрать любой допустимый вариант.</p><h3>6. Дамка</h3><p>При достижении последней линии шашка становится дамкой. Дамка ходит по диагонали на любое число свободных клеток и берёт фигуру соперника на расстоянии.</p><h3>7. Победа</h3><p>Победа — если у соперника не осталось шашек или нет ни одного допустимого хода.</p><h3>8. Онлайн</h3><p>Сервер является источником истины: проверяет обязательное взятие, серии, дамку, результат, ставки и выплаты.</p></div>`;
 const ABOUT=`<div class="about-content"><h2>🏢 SANI GROUP</h2><p><b>Проект:</b> SANI CHECKERS.</p><p>Премиальная веб-игра с локальным режимом, ИИ, онлайн-столами, магазином, VIP-подсказками и серверной проверкой ходов.</p><p>Правила SANI CHECKERS: простая шашка берёт вперёд и назад; дамка ходит и берёт на любое расстояние; обязательное взятие; продолжение серии добровольно.</p><div class="about-note">© ${new Date().getFullYear()} SANI GROUP.</div></div>`;
-
-function refreshHome(){
-  $('#connection').textContent=`● ${me.name}${me.vip?' 👑':''}`;
-  $('#connection').title=`🪙 ${me.chips} фишек${me.vip?' • VIP':''}`;
-  const g=me.dailyGift;
-  if(g){
-    $('#serverDate').textContent=`Сервер: ${g.serverDateLabel}`;
-    $('#dailyGiftBtn').textContent=g.claimedToday?'🎁✓':'🎁';
-    $('#dailyGiftBtn').title=g.claimedToday?`Подарок получен • ${g.serverDateLabel}`:`Ежедневный подарок • ${g.serverDateLabel}`;
-  }
-}
+function refreshHome(){ $('#connection').textContent=`● ${me.name}${me.vip?' 👑':''}`;$('#connection').title=`🪙 ${me.chips} фишек${me.vip?' • VIP':''}`;const g=me.dailyGift;if(g){$('#serverDate').textContent=`Сервер: ${g.serverDateLabel}`;$('#dailyGiftBtn').textContent=g.claimedToday?'🎁✓':'🎁';$('#dailyGiftBtn').title=g.claimedToday?`Подарок получен • ${g.serverDateLabel}`:`Ежедневный подарок • ${g.serverDateLabel}`}}
 function showGame(){ lastOnlineRevision=-1;$('#home').hidden=true;$('#game').hidden=false;render(); }
-function hideGame(){stopPoll();hintMove=null;mode='menu';$('#game').hidden=true;$('#home').hidden=false;selected=null;online={room:null,uid:null,side:null};refreshHome()}
-function startLocal(){hintMove=null;P.removeItem('saniCheckersRoom');P.removeItem('saniCheckersBot');mode='local';position=START_POSITION;$('#gameMode').textContent='ДВА ИГРОКА';$('#gameSub').textContent='Локальная партия';$('#whiteName').textContent='Белые';$('#blackName').textContent='Чёрные';$('#onlineBar').hidden=true;showGame()}
-
-async function openBot(){
-  openModal(`<div class="setup"><h2>🤖 Игра с ботом</h2><p>Ставка списывается со счёта перед началом. При победе банк возвращается в размере ×2.</p><label>Уровень бота</label><div class="bot-grid"><button type="button" class="bot-option" data-level="1"><b>1 — Безразрядник</b><small>Интуитивный новичок</small></button><button type="button" class="bot-option active" data-level="2"><b>2 — 1-й разряд</b><small>Тактический поиск</small></button><button type="button" class="bot-option" data-level="3"><b>3 — Гроссмейстер</b><small>Глубокий позиционно-тактический поиск</small></button></div><label>Ставка на игру</label><div class="quick-stakes">${[0,100,500,1000,5000,10000,25000].map(n=>`<button type="button" data-bot-stake="${n}">${n===0?'Без ставки':`🪙 ${n.toLocaleString('ru-RU')}`}</button>`).join('')}</div><input id="botStake" type="number" min="0" max="${me.chips}" value="0" inputmode="numeric" placeholder="Своя сумма"><div class="stake-preview" id="botStakePreview">Ставка: 0 🪙 • банк: 0 🪙</div><button class="primary" id="startBot">Начать игру</button></div>`);
-  $$('[data-level]').forEach(b=>b.onclick=()=>{$$('[data-level]').forEach(x=>x.classList.remove('active'));b.classList.add('active');botLevel=Number(b.dataset.level)});
-  const bi=$('#botStake');
-  const ub=()=>{const n=Math.max(0,Math.floor(Number(bi.value)||0));$('#botStakePreview').textContent=`Ставка: ${n.toLocaleString('ru-RU')} 🪙 • банк: ${(n*2).toLocaleString('ru-RU')} 🪙`;};
-  $$('[data-bot-stake]').forEach(b=>b.onclick=()=>{bi.value=b.dataset.botStake;ub()});
-  bi.oninput=ub;ub();
-  $('#startBot').onclick=async()=>{
-    try{
-      const stake=Math.max(0,Math.floor(Number(bi.value)||0));
-      const j=await api('/api/bot/start',{method:'POST',body:JSON.stringify({stake,level:botLevel})});
-      me=j.user;botGameId=j.gameId;botStake=stake;position=j.position;hintMove=null;
-      P.setItem('saniCheckersBot',JSON.stringify({gameId:botGameId}));
-      P.removeItem('saniCheckersRoom');
-      P.setItem('saniUserId',me.id);P.setItem('saniUserName',me.name);
-      mode='bot';gameOverShown=false;
-      $('#gameMode').textContent='ИГРА С БОТОМ';
-      $('#gameSub').textContent=`${j.levelName||(['','Безразрядник','1-й разряд','Гроссмейстер'][botLevel])}${stake?` • ставка ${stake.toLocaleString('ru-RU')}`:''}`;
-      $('#whiteName').textContent=me.name;$('#blackName').textContent='🤖 SANI AI';
-      $('#onlineBar').hidden=true;
-      closeModal();refreshHome();showGame();
-    }catch(e){openModal(`<h2>Не удалось начать</h2><p>${esc(e.message)}</p>`)}
-  };
+function hideGame(){stopPoll();mode='menu';$('#game').hidden=true;$('#home').hidden=false;selected=null;online={room:null,uid:null,side:null};refreshHome()}
+function startLocal(){sessionStorage.removeItem('saniCheckersRoom');sessionStorage.removeItem('saniCheckersBot');mode='local';position=START_POSITION;captureFrom=null;$('#gameMode').textContent='ДВА ИГРОКА';$('#gameSub').textContent='Локальная партия';$('#whiteName').textContent='Белые';$('#blackName').textContent='Чёрные';$('#onlineBar').hidden=true;showGame()}
+async function openBot(){openModal(`<div class="setup"><h2>🤖 Игра с ботом</h2><p>Ставка списывается со счёта перед началом. При победе банк возвращается в размере ×2.</p><label>Уровень бота</label><div class="bot-grid"><button type="button" class="bot-option" data-level="1"><b>1 — Безразрядник</b><small>Интуитивный новичок</small></button><button type="button" class="bot-option active" data-level="2"><b>2 — 1-й разряд</b><small>Тактический поиск</small></button><button type="button" class="bot-option" data-level="3"><b>3 — Гроссмейстер</b><small>Глубокий позиционно-тактический поиск</small></button></div><label>Ставка на игру</label><div class="quick-stakes">${[0,100,500,1000,5000,10000,25000].map(n=>`<button type="button" data-bot-stake="${n}">${n===0?'Без ставки':`🪙 ${n.toLocaleString('ru-RU')}`}</button>`).join('')}</div><input id="botStake" type="number" min="0" max="${me.chips}" value="0" inputmode="numeric" placeholder="Своя сумма"><div class="stake-preview" id="botStakePreview">Ставка: 0 🪙 • банк: 0 🪙</div><button class="primary" id="startBot">Начать игру</button></div>`);$$('[data-level]').forEach(b=>b.onclick=()=>{$$('[data-level]').forEach(x=>x.classList.remove('active'));b.classList.add('active');botLevel=Number(b.dataset.level)});const bi=$('#botStake');const ub=()=>{const n=Math.max(0,Math.floor(Number(bi.value)||0));$('#botStakePreview').textContent=`Ставка: ${n.toLocaleString('ru-RU')} 🪙 • банк: ${(n*2).toLocaleString('ru-RU')} 🪙`;};$$('[data-bot-stake]').forEach(b=>b.onclick=()=>{bi.value=b.dataset.botStake;ub()});bi.oninput=ub;ub();$('#startBot').onclick=async()=>{try{const stake=Math.max(0,Math.floor(Number(bi.value)||0));const j=await api('/api/bot/start',{method:'POST',body:JSON.stringify({stake,level:botLevel})});me=j.user;botGameId=j.gameId;botStake=stake;position=j.position;captureFrom=j.captureFrom??null;sessionStorage.setItem('saniCheckersBot',JSON.stringify({gameId:botGameId}));sessionStorage.removeItem('saniCheckersRoom');mode='bot';gameOverShown=false;$('#gameMode').textContent='ИГРА С БОТОМ';$('#gameSub').textContent=`${j.levelName||(['','Безразрядник','1-й разряд','Гроссмейстер'][botLevel])}${j.levelStyle?` • ${j.levelStyle}`:''}${stake?` • ставка ${stake.toLocaleString('ru-RU')}`:''}`;$('#whiteName').textContent=me.name;$('#blackName').textContent='🤖 SANI AI';$('#onlineBar').hidden=true;closeModal();refreshHome();showGame()}catch(e){openModal(`<h2>Не удалось начать</h2><p>${esc(e.message)}</p>`)}}}
+function render(){if($('#game').hidden)return;const st=piecesFromPos(position),b=$('#board');
+if(st.captureFrom!=null)selected=st.captureFrom;
+const myTurn=mode==='local'||(mode==='bot'&&st.side==='w')||(mode==='online'&&st.side===online.side);
+if(!myTurn)hintTarget=null;b.innerHTML='';b.className=`board board-${me?.inventory?.selectedBoard||'classic'}`;const captures=st.side?getLegal(st):[];const mandatoryFrom=new Set(captures.filter(m=>m.capture!=null).map(m=>m.from));const selectedMoves=selected==null?[]:captures.filter(m=>m.from===selected);const targetCaptures=new Set(selectedMoves.filter(m=>m.capture!=null).map(m=>m.to));for(let v=0;v<64;v++){const s=flipped?63-v:v,el=document.createElement('button');const dark=(Math.floor(s/8)+s%8)%2===1;el.className=`square ${dark?'dark':'light'} ${s===selected?'selected':''} ${mandatoryFrom.has(s)?'mandatory':''} ${targetCaptures.has(s)?'capture':''} ${s===hintTarget?'hint-square':''}`;const p=st.board[s];if(p){const sp=document.createElement('span');sp.className=`piece piece-${me?.inventory?.selectedPieces||'classic'} ${p.toLowerCase()==='w'?'white-piece':'black-piece'} ${p===p.toUpperCase()?'king-piece':''}`;sp.textContent=GL[p];el.appendChild(sp)}if(v<8){const c=document.createElement('span');c.className='coord';c.textContent=(s%8)+1;el.appendChild(c)}el.onclick=()=>clickSquare(s);b.appendChild(el)}
+$('#message').textContent=gameStatusText(st,myTurn);$('#captureInfo').textContent=st.captureFrom!=null?'Продолжайте этой же шашкой — взятие обязательно':'Нет активной серии';$('#hintBtn').hidden=!me?.vip||!myTurn;$('#whiteClock').textContent='';$('#blackClock').textContent='';const roomStake=mode==='online'&&online.room?Number(online.room.stake||0):mode==='bot'?Number(botStake||0):0;$('#stakeInfo').textContent=roomStake?`🪙 ${roomStake.toLocaleString('ru-RU')} с игрока`:'Без ставки';$('#bankInfo').textContent=roomStake?`Банк: ${(mode==='online'?Number(online.room.bank||roomStake*2):roomStake*2).toLocaleString('ru-RU')}`:'Банк: 0';
 }
-
-function render(){
-  if($('#game').hidden)return;
-  const st=piecesFromPos(position),b=$('#board');b.innerHTML='';
-  b.className=`board board-${me?.inventory?.selectedBoard||'classic'}`;
-  const captures=st.side?getLegal(st):[];
-  const mandatoryFrom=new Set(captures.filter(m=>m.capture!=null).map(m=>m.from));
-  const selectedMoves=selected==null?[]:captures.filter(m=>m.from===selected);
-  const targetCaptures=new Set(selectedMoves.filter(m=>m.capture!=null).map(m=>m.to));
-  const hintFrom=hintMove?hintMove.from:-1;
-  const hintTo=hintMove?hintMove.to:-1;
-  for(let v=0;v<64;v++){
-    const s=flipped?63-v:v,el=document.createElement('button');
-    const dark=(Math.floor(s/8)+s%8)%2===1;
-    el.className=`square ${dark?'dark':'light'} ${s===selected?'selected':''} ${mandatoryFrom.has(s)?'mandatory':''} ${targetCaptures.has(s)?'capture':''} ${s===hintFrom?'hint-from':''} ${s===hintTo?'hint-to':''}`;
-    const p=st.board[s];
-    if(p){
-      const sp=document.createElement('span');
-      sp.className=`piece piece-${me?.inventory?.selectedPieces||'classic'} ${p.toLowerCase()==='w'?'white-piece':'black-piece'} ${p===p.toUpperCase()?'king-piece':''}`;
-      sp.textContent=GL[p];el.appendChild(sp);
-    }
-    if(v<8){const c=document.createElement('span');c.className='coord';c.textContent=(s%8)+1;el.appendChild(c)}
-    el.onclick=()=>clickSquare(s);
-    b.appendChild(el);
-  }
-  const myTurn=mode==='local'||(mode==='bot'&&st.side==='w')||(mode==='online'&&st.side===online.side);
-  $('#message').textContent=gameStatusText(st,myTurn);
-  $('#captureInfo').textContent=st.captureFrom!=null?'Активная серия: можно продолжить или закончить':'Нет активной серии';
-  const canEndSeries=st.captureFrom!=null&&myTurn;
-  $('#endCapture').hidden=!canEndSeries;
-  $('#endCaptureTop').hidden=!canEndSeries;
-  $('#hintBtn').hidden=!me?.vip||!myTurn;
-  $('#whiteClock').textContent='';$('#blackClock').textContent='';
-  const roomStake=mode==='online'&&online.room?Number(online.room.stake||0):mode==='bot'?Number(botStake||0):0;
-  $('#stakeInfo').textContent=roomStake?`🪙 ${roomStake.toLocaleString('ru-RU')} с игрока`:'Без ставки';
-  $('#bankInfo').textContent=roomStake?`Банк: ${(mode==='online'?Number(online.room.bank||roomStake*2):roomStake*2).toLocaleString('ru-RU')}`:'Банк: 0';
-  if(mode==='online'&&online.room){
-    const rows=online.room.moves||[];
-    $('#moves').innerHTML=rows.slice(-24).map((m,i)=>`<div>${i+1}. ${nameOf(m.piece?.toLowerCase()==='w'?'w':'b')}: ${m.from+1}→${m.to+1}${m.capture!=null?' ×':''}</div>`).join('')||'—';
-  }
-}
-
 function getLegal(st){return window.checkersMoves?window.checkersMoves(st):[]}
-
-function checkersMoves(st){
-  const D=[[1,1],[1,-1],[-1,1],[-1,-1]],b=st.board,enemy=c=>c==='w'?'b':'w',side=c=>c&&c.toLowerCase()==='w'?'w':c&&c.toLowerCase()==='b'?'b':null,inside=(f,r)=>f>=0&&f<8&&r>=0&&r<8,capFrom=st.captureFrom;
-  function caps(from){const p=b[from],c=side(p),f=from%8,r=Math.floor(from/8),o=[];if(!p||c!==st.side)return o;if(p==='w'||p==='b'){for(const[df,dr]of D){const mf=f+df,mr=r+dr,tf=f+2*df,tr=r+2*dr;if(inside(tf,tr)&&b[mf+mr*8]&&side(b[mf+mr*8])===enemy(c)&&!b[tf+tr*8])o.push({from,to:tf+tr*8,capture:mf+mr*8})}}else for(const[df,dr]of D){let F=f+df,R=r+dr,seen=-1;while(inside(F,R)){const s=F+R*8,q=b[s];if(q){if(side(q)===c)break;if(seen!==-1)break;seen=s}else if(seen!==-1)o.push({from,to:s,capture:seen});F+=df;R+=dr}}return o}
-  function quiet(from){const p=b[from],c=side(p),f=from%8,r=Math.floor(from/8),o=[];if(p==='w'||p==='b'){const dr=c==='w'?1:-1;for(const df of[-1,1]){const F=f+df,R=r+dr;if(inside(F,R)&&!b[F+R*8])o.push({from,to:F+R*8})}}else for(const[df,dr]of D){let F=f+df,R=r+dr;while(inside(F,R)&&!b[F+R*8]){o.push({from,to:F+R*8});F+=df;R+=dr}}return o}
-  if(capFrom!=null)return caps(capFrom);
-  let c=[];
-  for(let i=0;i<64;i++)if(side(b[i])===st.side)c.push(...caps(i));
-  if(c.length)return c;
-  for(let i=0;i<64;i++)if(side(b[i])===st.side)c.push(...quiet(i));
-  return c;
-}
+// compact client-side legal move generator mirrors server
+function checkersMoves(st){const D=[[1,1],[1,-1],[-1,1],[-1,-1]],b=st.board,enemy=c=>c==='w'?'b':'w',side=c=>c&&c.toLowerCase()==='w'?'w':c&&c.toLowerCase()==='b'?'b':null,inside=(f,r)=>f>=0&&f<8&&r>=0&&r<8,capFrom=st.captureFrom;
+function caps(from){const p=b[from],c=side(p),f=from%8,r=Math.floor(from/8),o=[];if(!p||c!==st.side)return o;if(p==='w'||p==='b'){for(const[df,dr]of D){const mf=f+df,mr=r+dr,tf=f+2*df,tr=r+2*dr;if(inside(tf,tr)&&b[mf+mr*8]&&side(b[mf+mr*8])===enemy(c)&&!b[tf+tr*8])o.push({from,to:tf+tr*8,capture:mf+mr*8})}}else for(const[df,dr]of D){let F=f+df,R=r+dr,seen=-1;while(inside(F,R)){const s=F+R*8,q=b[s];if(q){if(side(q)===c)break;if(seen!==-1)break;seen=s}else if(seen!==-1)o.push({from,to:s,capture:seen});F+=df;R+=dr}}return o}
+function quiet(from){const p=b[from],c=side(p),f=from%8,r=Math.floor(from/8),o=[];if(p==='w'||p==='b'){const dr=c==='w'?1:-1;for(const df of[-1,1]){const F=f+df,R=r+dr;if(inside(F,R)&&!b[F+R*8])o.push({from,to:F+R*8})}}else for(const[df,dr]of D){let F=f+df,R=r+dr;while(inside(F,R)&&!b[F+R*8]){o.push({from,to:F+R*8});F+=df;R+=dr}}return o}
+if(capFrom!=null)return caps(capFrom);let c=[];for(let i=0;i<64;i++)if(side(b[i])===st.side)c.push(...caps(i));if(c.length)return c;for(let i=0;i<64;i++)if(side(b[i])===st.side)c.push(...quiet(i));return c}
 window.checkersMoves=checkersMoves;
-
-function applyLocal(m){const st=piecesFromPos(position);st.captureFrom=st.captureFrom??null;const p=st.board[m.from],c=st.side;st.board[m.from]=null;if(m.capture!=null)st.board[m.capture]=null;let q=p,r=Math.floor(m.to/8);if(p==='w'&&r===7)q='W';if(p==='b'&&r===0)q='B';st.board[m.to]=q;let more=m.capture!=null?checkersMoves({...st,side:c,captureFrom:null}).filter(x=>x.from===m.to&&x.capture!=null):[];st.side=more.length?c:(c==='w'?'b':'w');st.captureFrom=more.length?m.to:null;position=serialize(st);selected=null;render();checkLocalEnd(st)}
+function applyLocal(m){const st=piecesFromPos(position);const p=st.board[m.from],c=st.side;st.board[m.from]=null;if(m.capture!=null)st.board[m.capture]=null;let q=p,r=Math.floor(m.to/8);if(p==='w'&&r===7)q='W';if(p==='b'&&r===0)q='B';st.board[m.to]=q;/* Quiet move ends the turn even if this move created a new capture. */let more=m.capture!=null?checkersMoves({...st,side:c,captureFrom:null}).filter(x=>x.from===m.to&&x.capture!=null):[];st.side=more.length?c:(c==='w'?'b':'w');captureFrom=more.length?m.to:null;position=serialize(st);st.captureFrom=captureFrom;selected=null;render();checkLocalEnd(st)}
 function serialize(st){let p='';for(let r=7;r>=0;r--){let e=0;for(let f=0;f<8;f++){const x=st.board[r*8+f];if(!x)e++;else{if(e){p+=e;e=0}p+=x}}if(e)p+=e;if(r)p+='/'}return p+' '+st.side}
 function checkLocalEnd(st){const res=gameResult(st);if(res)openGameOver(res==='w'?'Победили белые':res==='b'?'Победили чёрные':'Ничья')}
 function gameResult(st){const w=st.board.some(p=>p&&p.toLowerCase()==='w'),b=st.board.some(p=>p&&p.toLowerCase()==='b');if(!w)return'b';if(!b)return'w';if(!checkersMoves(st).length)return st.side==='w'?'b':'w';return null}
-function gameStatusText(st,myTurn){if(gameResult(st))return'Партия завершена';if(st.captureFrom!=null)return myTurn?'Продолжение взятия — можно продолжить или закончить':'Ожидание продолжения соперника';return myTurn?'Ваш ход':'Ход соперника'}
-
-async function clickSquare(s){
-  if($('#game').hidden)return;
-  const st=piecesFromPos(position);
-  const myTurn=mode==='local'||(mode==='bot'&&st.side==='w')||(mode==='online'&&st.side===online.side);
-  if(!myTurn)return;
-  if(hintMove){hintMove=null;render()}
-  if(selected==null){
-    if(st.board[s]&&st.board[s].toLowerCase()===st.side){
-      const legal=checkersMoves(st);
-      const forced=legal.some(m=>m.capture!=null);
-      if(!forced||legal.some(m=>m.from===s&&m.capture!=null))selected=s;
-    }
-  }else{
-    const m=checkersMoves(st).find(x=>x.from===selected&&x.to===s);
-    if(m){if(mode==='local')applyLocal(m);else if(mode==='bot')await botMove(m);else await onlineMove(m)}
-    else if(st.board[s]&&st.board[s].toLowerCase()===st.side)selected=s;
-    else selected=null;
-    render();
-  }
-}
-
-async function botMove(m){
-  try{
-    const j=await api('/api/bot/move',{method:'POST',body:JSON.stringify({gameId:botGameId,from:m.from,to:m.to})});
-    position=j.position;me=j.user;selected=null;
-    if(j.result)openGameOver(j.result==='win'?'Победа!':j.result==='loss'?'Поражение':'Ничья');
-    render();
-  }catch(e){openModal(`<h2>Ошибка хода</h2><p>${esc(e.message)}</p>`)}
-}
-
-async function endCapture(){
-  const st=piecesFromPos(position);
-  if(st.captureFrom==null)return;
-  if(mode==='local'){
-    st.captureFrom=null;st.side=st.side==='w'?'b':'w';
-    position=serialize(st);selected=null;render();checkLocalEnd(st);return;
-  }
-}
-
-async function openOnline(){
-  openModal(`<div class="setup"><h2>🌐 Онлайн стол</h2><p>Выберите ставку — она списывается у обоих игроков и формирует общий банк.</p><label>Ставка на игрока</label><div class="quick-stakes">${[0,100,500,1000,5000,10000,25000,50000].map(n=>`<button type="button" data-stake="${n}">${n===0?'Без ставки':`🪙 ${n.toLocaleString('ru-RU')}`}</button>`).join('')}</div><input id="roomStake" type="number" min="0" max="${me.chips}" value="0" inputmode="numeric" placeholder="Своя сумма"><div class="stake-preview" id="stakePreview">Банк партии: 0 🪙</div><div class="form-row modal-actions"><button class="primary modal-btn" id="createRoom">🌐 Создать стол</button><button class="modal-btn modal-btn-secondary" id="joinRoom">🔑 Войти по коду</button></div><div class="room-divider">или</div><input id="roomCode" maxlength="4" inputmode="numeric" placeholder="4-значный код стола"></div>`);
-  const stakeInput=$('#roomStake');
-  const updateStake=()=>{const n=Math.max(0,Math.floor(Number(stakeInput.value)||0));$('#stakePreview').textContent=`Банк партии: ${(n*2).toLocaleString('ru-RU')} 🪙 • у вас останется ${Math.max(0,me.chips-n).toLocaleString('ru-RU')} 🪙`};
-  $$('[data-stake]').forEach(b=>b.onclick=()=>{stakeInput.value=b.dataset.stake;updateStake()});
-  stakeInput.oninput=updateStake;updateStake();
-  $('#createRoom').onclick=async()=>{
-    try{
-      const stake=Math.max(0,Math.floor(Number(stakeInput.value)||0));
-      const j=await api('/api/room/create',{method:'POST',body:JSON.stringify({stake})});
-      me=j.user;online={room:j.room,uid:j.uid,side:j.self};hintMove=null;
-      P.setItem('saniCheckersRoom',JSON.stringify({roomId:j.room.id,uid:j.uid,side:j.self}));
-      P.removeItem('saniCheckersBot');
-      P.setItem('saniUserId',me.id);P.setItem('saniUserName',me.name);
-      position=j.room.position;mode='online';gameOverShown=false;
-      $('#gameMode').textContent='ОНЛАЙН';
-      $('#gameSub').textContent=`Стол ${j.room.id} • ${stake?`🪙 ${stake.toLocaleString('ru-RU')}`:'без ставки'}`;
-      $('#whiteName').textContent=j.room.players.find(p=>p.side==='w')?.name||'Белые';
-      $('#blackName').textContent='Ожидание игрока…';
-      $('#roomLabel').textContent=`Код: ${j.room.id}`;
-      $('#onlineBar').hidden=false;closeModal();refreshHome();showGame();startPoll();
-    }catch(e){openModal(`<h2>Не удалось создать стол</h2><p>${esc(e.message)}</p>`)}
-  };
-  $('#joinRoom').onclick=async()=>{
-    try{
-      const roomId=$('#roomCode').value.trim();
-      const j=await api('/api/room/join',{method:'POST',body:JSON.stringify({roomId})});
-      me=j.user;online={room:j.room,uid:j.uid,side:j.self};hintMove=null;
-      P.setItem('saniCheckersRoom',JSON.stringify({roomId:j.room.id,uid:j.uid,side:j.self}));
-      P.removeItem('saniCheckersBot');
-      P.setItem('saniUserId',me.id);P.setItem('saniUserName',me.name);
-      position=j.room.position;mode='online';gameOverShown=false;
-      $('#gameMode').textContent='ОНЛАЙН';
-      $('#gameSub').textContent=`Стол ${j.room.id} • ${Number(j.room.stake||0)?`🪙 ${Number(j.room.stake).toLocaleString('ru-RU')}`:'без ставки'}`;
-      $('#roomLabel').textContent=`Стол ${j.room.id}`;
-      $('#onlineBar').hidden=false;closeModal();refreshHome();showGame();startPoll();
-    }catch(e){openModal(`<h2>Не удалось войти</h2><p>${esc(e.message)}</p>`)}
-  };
-}
-
-async function onlineMove(m){
-  try{
-    const j=await api('/api/room/move',{method:'POST',body:JSON.stringify({roomId:online.room.id,uid:online.uid,from:m.from,to:m.to})});
-    online.room=j.room;position=j.room.position;selected=null;render();
-  }catch(e){openModal(`<h2>Ход отклонён</h2><p>${esc(e.message)}</p>`)}
-}
-
+function gameStatusText(st,myTurn){if(gameResult(st))return'Партия завершена';if(st.captureFrom!=null)return myTurn?'Обязательное продолжение — ходите этой же шашкой':'Ожидание продолжения соперника';return myTurn?'Ваш ход':'Ход соперника'}
+async function clickSquare(s){hintTarget=null;if($('#game').hidden)return;const st=piecesFromPos(position);const myTurn=mode==='local'||(mode==='bot'&&st.side==='w')||(mode==='online'&&st.side===online.side);if(!myTurn)return;if(selected==null){if(st.board[s]&&st.board[s].toLowerCase()===st.side){if(st.captureFrom!=null){selected=st.captureFrom;render();return}const legal=checkersMoves(st);const forced=legal.some(m=>m.capture!=null);if(!forced||legal.some(m=>m.from===s&&m.capture!=null)){selected=s;render()}}}else{const m=checkersMoves(st).find(x=>x.from===selected&&x.to===s);if(m){if(mode==='local')applyLocal(m);else if(mode==='bot')await botMove(m);else await onlineMove(m)}else if(st.board[s]&&st.board[s].toLowerCase()===st.side){if(st.captureFrom!=null){selected=st.captureFrom}else selected=s}else if(st.captureFrom!=null){selected=st.captureFrom}else selected=null;render()}}
+async function botMove(m){try{const j=await api('/api/bot/move',{method:'POST',body:JSON.stringify({gameId:botGameId,from:m.from,to:m.to})});position=j.position;captureFrom=j.captureFrom??null;me=j.user;selected=null;if(j.result)openGameOver(j.result==='win'?'Победа!':j.result==='loss'?'Поражение':'Ничья');render()}catch(e){openModal(`<h2>Ошибка хода</h2><p>${esc(e.message)}</p>`)}}
+async function openOnline(){openModal(`<div class="setup"><h2>🌐 Онлайн стол</h2><p>Выберите ставку — она списывается у обоих игроков и формирует общий банк.</p><label>Ставка на игрока</label><div class="quick-stakes">${[0,100,500,1000,5000,10000,25000,50000].map(n=>`<button type="button" data-stake="${n}">${n===0?'Без ставки':`🪙 ${n.toLocaleString('ru-RU')}`}</button>`).join('')}</div><input id="roomStake" type="number" min="0" max="${me.chips}" value="0" inputmode="numeric" placeholder="Своя сумма"><div class="stake-preview" id="stakePreview">Банк партии: 0 🪙</div><div class="form-row modal-actions"><button class="primary modal-btn" id="createRoom">🌐 Создать стол</button><button class="modal-btn modal-btn-secondary" id="joinRoom">🔑 Войти по коду</button></div><div class="room-divider">или</div><input id="roomCode" maxlength="4" inputmode="numeric" placeholder="4-значный код стола"></div>`);const stakeInput=$('#roomStake');const updateStake=()=>{const n=Math.max(0,Math.floor(Number(stakeInput.value)||0));$('#stakePreview').textContent=`Банк партии: ${(n*2).toLocaleString('ru-RU')} 🪙 • у вас останется ${Math.max(0,me.chips-n).toLocaleString('ru-RU')} 🪙`};$$('[data-stake]').forEach(b=>b.onclick=()=>{stakeInput.value=b.dataset.stake;updateStake()});stakeInput.oninput=updateStake;updateStake();$('#createRoom').onclick=async()=>{try{const stake=Math.max(0,Math.floor(Number(stakeInput.value)||0));const j=await api('/api/room/create',{method:'POST',body:JSON.stringify({stake})});me=j.user;online={room:j.room,uid:j.uid,side:j.self};sessionStorage.setItem('saniCheckersRoom',JSON.stringify({roomId:j.room.id,uid:j.uid,side:j.self}));sessionStorage.removeItem('saniCheckersBot');position=j.room.position;captureFrom=j.room.captureFrom??null;mode='online';gameOverShown=false;$('#gameMode').textContent='ОНЛАЙН';$('#gameSub').textContent=`Стол ${j.room.id} • ${stake?`🪙 ${stake.toLocaleString('ru-RU')}`:'без ставки'}`;$('#whiteName').textContent=j.room.players.find(p=>p.side==='w')?.name||'Белые';$('#blackName').textContent='Ожидание игрока…';$('#roomLabel').textContent=`Код: ${j.room.id}`;$('#onlineBar').hidden=false;closeModal();refreshHome();showGame();startPoll()}catch(e){openModal(`<h2>Не удалось создать стол</h2><p>${esc(e.message)}</p>`)}};$('#joinRoom').onclick=async()=>{try{const roomId=$('#roomCode').value.trim();const j=await api('/api/room/join',{method:'POST',body:JSON.stringify({roomId})});me=j.user;online={room:j.room,uid:j.uid,side:j.self};sessionStorage.setItem('saniCheckersRoom',JSON.stringify({roomId:j.room.id,uid:j.uid,side:j.self}));sessionStorage.removeItem('saniCheckersBot');position=j.room.position;captureFrom=j.room.captureFrom??null;mode='online';gameOverShown=false;$('#gameMode').textContent='ОНЛАЙН';$('#gameSub').textContent=`Стол ${j.room.id} • ${Number(j.room.stake||0)?`🪙 ${Number(j.room.stake).toLocaleString('ru-RU')}`:'без ставки'}`;$('#roomLabel').textContent=`Стол ${j.room.id}`;$('#onlineBar').hidden=false;closeModal();refreshHome();showGame();startPoll()}catch(e){openModal(`<h2>Не удалось войти</h2><p>${esc(e.message)}</p>`)}}}
+async function onlineMove(m){try{const j=await api('/api/room/move',{method:'POST',body:JSON.stringify({roomId:online.room.id,uid:online.uid,from:m.from,to:m.to})});online.room=j.room;position=j.room.position;captureFrom=j.room.captureFrom??null;selected=null;render()}catch(e){openModal(`<h2>Ход отклонён</h2><p>${esc(e.message)}</p>`)}}
 const ONLINE_SYNC_MS=100;
 let pollRunning=false,lastOnlineRevision=-1;
 function startPoll(){stopPoll();pollRunning=true;const tick=async()=>{if(!pollRunning||mode!=='online'||!online.room||!online.uid)return;const started=performance.now();await syncOnline();if(!pollRunning||mode!=='online'||!online.room||!online.uid)return;const wait=Math.max(10,ONLINE_SYNC_MS-(performance.now()-started));poll=setTimeout(tick,wait)};tick()}
 function stopPoll(){pollRunning=false;if(poll){clearTimeout(poll);poll=null}}
 function renderChat(){if(!online.room)return;const box=$('#chatLog');box.innerHTML=(online.room.chat||[]).map(x=>`<div class="chat-msg"><b>${esc(x.name)}:</b><span>${esc(x.text)}</span></div>`).join('');box.scrollTop=box.scrollHeight}
 async function sendChat(){const input=$('#chatInput'),text=input.value.trim();if(!text||mode!=='online')return;try{await api('/api/room/chat',{method:'POST',body:JSON.stringify({roomId:online.room.id,uid:online.uid,text})});input.value='';await syncOnline()}catch(e){openModal(`<h2>Чат</h2><p>${esc(e.message)}</p>`)}}
-async function answerDraw(accept){try{const j=await api('/api/room/draw-response',{method:'POST',body:JSON.stringify({roomId:online.room.id,uid:online.uid,accept})});online.room=j.room;drawPrompted=false;position=j.room.position;render()}catch(e){openModal(`<h2>Ничья</h2><p>${esc(e.message)}</p>`)}}
-
-async function syncOnline(){
-  if(mode!=='online'||!online.room||!online.uid)return;
-  try{
-    const j=await api(`/api/room/sync?roomId=${encodeURIComponent(online.room.id)}&uid=${encodeURIComponent(online.uid)}`);
-    const incomingRevision=Number(j.room.revision||0),currentRevision=Number(online.room.revision||0);
-    if(incomingRevision<currentRevision)return;
-    const changed=incomingRevision!==currentRevision||lastOnlineRevision<0;
-    online.room=j.room;position=j.room.position;
-    $('#whiteName').textContent=j.room.players.find(p=>p.side==='w')?.name||'Белые';
-    $('#blackName').textContent=j.room.players.find(p=>p.side==='b')?.name||'Ожидание игрока…';
-    $('#onlineState').textContent=j.room.status==='waiting'?'Ожидание второго игрока…':j.room.result?'Партия завершена':`Ход: ${nameOf(j.room.turn)}`;
-    if(changed){lastOnlineRevision=incomingRevision;renderChat();render();}
-    if(j.room.rematchRoomId&&!rematchConnecting){const connected=await connectRematch(j.room.id);if(connected)return;}
-    if(j.room.drawOffer&&j.room.drawOffer!==online.side&&!drawPrompted&&!j.room.result){
-      drawPrompted=true;
-      openModal(`<div class="hint-modal"><h2>🤝 Предложение ничьей</h2><p>Соперник предлагает закончить партию вничью.</p><div class="confirm-actions"><button class="primary" id="acceptDraw">Принять</button><button id="declineDraw">Отклонить</button></div></div>`);
-      $('#acceptDraw').onclick=()=>answerDraw(true);
-      $('#declineDraw').onclick=()=>answerDraw(false);
-    }
-    if(j.room.result&&!gameOverShown){gameOverShown=true;openOnlineGameOver(j.room)}
-  }catch(e){
-    if(e.status===401){hideGame();return}
-    if(e.status===404){
-      stopPoll();P.removeItem('saniCheckersRoom');online={room:null,uid:null,side:null};
-      openModal('<div class="hint-modal"><h2>Онлайн-сессия устарела</h2><p>Стол больше недоступен. Создайте новый стол или войдите по новому коду.</p><button class="modal-btn modal-btn-secondary" id="staleRoomMenu">← В меню</button></div>');
-      $('#staleRoomMenu').onclick=()=>{closeModal();hideGame()}
-    }
-  }
-}
-
-async function connectRematch(oldRoomId){
-  if(rematchConnecting)return;
-  rematchConnecting=true;
-  try{
-    const j=await api('/api/room/rematch-connect',{method:'POST',body:JSON.stringify({roomId:oldRoomId})});
-    online={room:j.room,uid:j.uid,side:j.self};
-    position=j.room.position;
-    P.setItem('saniCheckersRoom',JSON.stringify({roomId:j.room.id,uid:j.uid,side:j.self}));
-    gameOverShown=false;
-    $('#gameMode').textContent='ОНЛАЙН';
-    $('#gameSub').textContent=`РЕВАНШ • Стол ${j.room.id}`;
-    $('#roomLabel').textContent=`Код: ${j.room.id}`;
-    $('#onlineBar').hidden=false;closeModal();render();return true;
-  }catch(e){return false}
-  finally{rematchConnecting=false}
-}
-
-async function requestRematch(){
-  if(mode!=='online'||!online.room)return;
-  try{
-    const j=await api('/api/room/rematch',{method:'POST',body:JSON.stringify({roomId:online.room.id})});
-    if(j.ready){
-      online={room:j.room,uid:j.uid,side:j.self};
-      position=j.room.position;
-      P.setItem('saniCheckersRoom',JSON.stringify({roomId:j.room.id,uid:j.uid,side:j.self}));
-      gameOverShown=false;
-      $('#gameMode').textContent='ОНЛАЙН';
-      $('#gameSub').textContent=`РЕВАНШ • Стол ${j.room.id}`;
-      $('#roomLabel').textContent=`Код: ${j.room.id}`;
-      closeModal();render();return;
-    }
-    openModal(`<div class="hint-modal"><h2>⚔️ РЕВАНШ ПРЕДЛОЖЕН</h2><p>Соперник увидит предложение. Как только он согласится, новая партия начнётся автоматически с той же ставкой.</p><button class="modal-btn modal-btn-secondary" id="cancelRematch">← В меню</button></div>`);
-    $('#cancelRematch').onclick=()=>{P.removeItem('saniCheckersRoom');hideGame()}
-  }catch(e){openModal(`<h2>Реванш</h2><p>${esc(e.message)}</p>`)}
-}
-
-function openOnlineGameOver(room){
-  const won=room.winner===online.side,draw=room.result==='1/2-1/2';
-  const title=draw?'🤝 НИЧЬЯ':won?'🏆 ПОБЕДА':'💔 ПОРАЖЕНИЕ';
-  const resultText=draw?'Игроки договорились о ничьей.':won?'Вы победили — банк зачислен на ваш счёт.':'Вы проиграли — ставка списана.';
-  const reason=room.forfeitReason?`<p class="result-reason">${esc(room.forfeitReason)}</p>`:'';
-  const rematchText=room.rematchReady?'Реванш уже создан — подключаемся…':room.rematchOffered?'Вы уже предложили реванш. Ждём соперника.':'Сыграть ещё одну партию с тем же соперником.';
-  openModal(`<div class="result-card"><div class="result-icon">${won?'🏆':draw?'🤝':'⚔️'}</div><h2>${title}</h2><p>${esc(resultText)}</p>${reason}<div class="result-bank">🪙 Банк: ${Number(room.bank||0).toLocaleString('ru-RU')}</div><div class="confirm-actions"><button class="primary" id="rematchBtn">⚔️ Реванш</button><button class="modal-btn modal-btn-secondary" id="resultMenu">← В меню</button></div><small class="profile-note">${esc(rematchText)}</small></div>`);
-  $('#rematchBtn').onclick=requestRematch;
-  $('#resultMenu').onclick=()=>{P.removeItem('saniCheckersRoom');closeModal();hideGame()};
-}
-
-function forfeitOnlineInBackground(){if(mode!=='online'||!online.room||online.room.result)return;const payload={roomId:online.room.id,uid:online.uid};stopPoll();void api('/api/room/leave',{method:'POST',body:JSON.stringify(payload),keepalive:true}).catch(()=>{});P.removeItem('saniCheckersRoom')}
-function resignBotInBackground(){if(mode!=='bot'||!botGameId)return;const payload={gameId:botGameId};void api('/api/bot/resign',{method:'POST',body:JSON.stringify(payload),keepalive:true}).catch(()=>{});P.removeItem('saniCheckersBot')}
+async function answerDraw(accept){try{const j=await api('/api/room/draw-response',{method:'POST',body:JSON.stringify({roomId:online.room.id,uid:online.uid,accept})});online.room=j.room;drawPrompted=false;position=j.room.position;captureFrom=j.room.captureFrom??null;render()}catch(e){openModal(`<h2>Ничья</h2><p>${esc(e.message)}</p>`)}}
+async function syncOnline(){if(mode!=='online'||!online.room||!online.uid)return;try{const j=await api(`/api/room/sync?roomId=${encodeURIComponent(online.room.id)}&uid=${encodeURIComponent(online.uid)}`);const incomingRevision=Number(j.room.revision||0),currentRevision=Number(online.room.revision||0);if(incomingRevision<currentRevision)return;const changed=incomingRevision!==currentRevision||lastOnlineRevision<0;online.room=j.room;position=j.room.position;captureFrom=j.room.captureFrom??null;$('#whiteName').textContent=j.room.players.find(p=>p.side==='w')?.name||'Белые';$('#blackName').textContent=j.room.players.find(p=>p.side==='b')?.name||'Ожидание игрока…';$('#onlineState').textContent=j.room.status==='waiting'?'Ожидание второго игрока…':j.room.result?'Партия завершена':`Ход: ${nameOf(j.room.turn)}`;if(changed){lastOnlineRevision=incomingRevision;renderChat();render();}if(j.room.rematchRoomId&&!rematchConnecting){const connected=await connectRematch(j.room.id);if(connected)return;}if(j.room.drawOffer&&j.room.drawOffer!==online.side&&!drawPrompted&&!j.room.result){drawPrompted=true;openModal(`<div class="hint-modal"><h2>🤝 Предложение ничьей</h2><p>Соперник предлагает закончить партию вничью.</p><div class="confirm-actions"><button class="primary" id="acceptDraw">Принять</button><button id="declineDraw">Отклонить</button></div></div>`);$('#acceptDraw').onclick=()=>answerDraw(true);$('#declineDraw').onclick=()=>answerDraw(false)}if(j.room.result&&!gameOverShown){gameOverShown=true;openOnlineGameOver(j.room)}}catch(e){if(e.status===401){hideGame();return}if(e.status===404){stopPoll();sessionStorage.removeItem('saniCheckersRoom');online={room:null,uid:null,side:null};openModal('<div class="hint-modal"><h2>Онлайн-сессия устарела</h2><p>Стол больше недоступен или сервер был обновлён. Создайте новый стол или войдите по новому коду.</p><button class="modal-btn modal-btn-secondary" id="staleRoomMenu">← В меню</button></div>');$('#staleRoomMenu').onclick=()=>{closeModal();hideGame()}}}}
+async function connectRematch(oldRoomId){if(rematchConnecting)return;rematchConnecting=true;try{const j=await api('/api/room/rematch-connect',{method:'POST',body:JSON.stringify({roomId:oldRoomId})});online={room:j.room,uid:j.uid,side:j.self};position=j.room.position;captureFrom=j.room.captureFrom??null;sessionStorage.setItem('saniCheckersRoom',JSON.stringify({roomId:j.room.id,uid:j.uid,side:j.self}));gameOverShown=false;$('#gameMode').textContent='ОНЛАЙН';$('#gameSub').textContent=`РЕВАНШ • Стол ${j.room.id}`;$('#roomLabel').textContent=`Код: ${j.room.id}`;$('#onlineBar').hidden=false;closeModal();render();return true}catch(e){return false}finally{rematchConnecting=false}}
+async function requestRematch(){if(mode!=='online'||!online.room)return;try{const j=await api('/api/room/rematch',{method:'POST',body:JSON.stringify({roomId:online.room.id})});if(j.ready){online={room:j.room,uid:j.uid,side:j.self};position=j.room.position;captureFrom=j.room.captureFrom??null;sessionStorage.setItem('saniCheckersRoom',JSON.stringify({roomId:j.room.id,uid:j.uid,side:j.self}));gameOverShown=false;$('#gameMode').textContent='ОНЛАЙН';$('#gameSub').textContent=`РЕВАНШ • Стол ${j.room.id}`;$('#roomLabel').textContent=`Код: ${j.room.id}`;closeModal();render();return}openModal(`<div class="hint-modal"><h2>⚔️ РЕВАНШ ПРЕДЛОЖЕН</h2><p>Соперник увидит предложение. Как только он согласится, новая партия начнётся автоматически с той же ставкой.</p><button class="modal-btn modal-btn-secondary" id="cancelRematch">← В меню</button></div>`);$('#cancelRematch').onclick=()=>{sessionStorage.removeItem('saniCheckersRoom');hideGame()}}catch(e){openModal(`<h2>Реванш</h2><p>${esc(e.message)}</p>`)}}
+function openOnlineGameOver(room){const won=room.winner===online.side,draw=room.result==='1/2-1/2';const title=draw?'🤝 НИЧЬЯ':won?'🏆 ПОБЕДА':'💔 ПОРАЖЕНИЕ';const resultText=draw?'Игроки договорились о ничьей.':won?'Вы победили — банк зачислен на ваш счёт.':'Вы проиграли — ставка списана.';const reason=room.forfeitReason?`<p class="result-reason">${esc(room.forfeitReason)}</p>`:'';const rematchText=room.rematchReady?'Реванш уже создан — подключаемся…':room.rematchOffered?'Вы уже предложили реванш. Ждём соперника.':'Сыграть ещё одну партию с тем же соперником.';openModal(`<div class="result-card"><div class="result-icon">${won?'🏆':draw?'🤝':'⚔️'}</div><h2>${title}</h2><p>${esc(resultText)}</p>${reason}<div class="result-bank">🪙 Банк: ${Number(room.bank||0).toLocaleString('ru-RU')}</div><div class="confirm-actions"><button class="primary" id="rematchBtn">⚔️ Реванш</button><button class="modal-btn modal-btn-secondary" id="resultMenu">← В меню</button></div><small class="profile-note">${esc(rematchText)}</small></div>`);$('#rematchBtn').onclick=requestRematch;$('#resultMenu').onclick=()=>{sessionStorage.removeItem('saniCheckersRoom');closeModal();hideGame()}}
+function forfeitOnlineInBackground(){if(mode!=='online'||!online.room||online.room.result)return;const payload={roomId:online.room.id,uid:online.uid};stopPoll();void api('/api/room/leave',{method:'POST',body:JSON.stringify(payload),keepalive:true}).catch(()=>{});sessionStorage.removeItem('saniCheckersRoom')}
+function resignBotInBackground(){if(mode!=='bot'||!botGameId)return;const payload={gameId:botGameId};void api('/api/bot/resign',{method:'POST',body:JSON.stringify(payload),keepalive:true}).catch(()=>{});sessionStorage.removeItem('saniCheckersBot')}
 function leave(){if(mode==='online'&&online.room&&!online.room.result){forfeitOnlineInBackground()}else if(mode==='bot'&&botGameId){resignBotInBackground()}else stopPoll();hideGame()}
-function startNewFromGame(){
-  if(mode==='online'&&online.room&&!online.room.result){forfeitOnlineInBackground();online={room:null,uid:null,side:null};mode='menu';closeModal();openOnline();return}
-  if(mode==='bot'&&botGameId){resignBotInBackground();botGameId=null;mode='menu';closeModal();openBot();return}
-  closeModal();
-  if(mode==='local')startLocal();
-  else if(mode==='bot')openBot();
-  else openOnline();
-}
-
+function startNewFromGame(){if(mode==='online'&&online.room&&!online.room.result){forfeitOnlineInBackground();online={room:null,uid:null,side:null};mode='menu';closeModal();openOnline();return}if(mode==='bot'&&botGameId){resignBotInBackground();botGameId=null;mode='menu';closeModal();openBot();return}closeModal();if(mode==='local')startLocal();else if(mode==='bot')openBot();else openOnline()}
 function openGameOver(text){
-  hintMove=null;
-  if(mode==='bot')P.removeItem('saniCheckersBot');
+  if(mode==='bot')sessionStorage.removeItem('saniCheckersBot');
   const lower=String(text||'').toLowerCase();
   const isDraw=lower.includes('ничья');
   const isWin=lower.includes('побед') || lower.includes('выигр');
@@ -334,286 +76,52 @@ function openGameOver(text){
   $('#again').onclick=startNewFromGame;
   $('#toMenu').onclick=()=>{closeModal();leave()}
 }
-
-async function resign(){
-  if(mode==='local'){openGameOver('Партия завершена');return}
-  if(mode==='bot'){
-    try{
-      const j=await api('/api/bot/resign',{method:'POST',body:JSON.stringify({gameId:botGameId})});
-      me=j.user;P.removeItem('saniCheckersBot');
-      openGameOver('Вы сдались. Ставка проиграна.');
-    }catch(e){openModal(`<h2>Сдача</h2><p>${esc(e.message)}</p>`)}
-    return;
-  }
-  if(mode==='online'){
-    if(online.room?.result)return;
-    try{await api('/api/room/resign',{method:'POST',body:JSON.stringify({roomId:online.room.id,uid:online.uid})});await syncOnline()}
-    catch(e){openModal(`<h2>Сдача</h2><p>${esc(e.message)}</p>`)}
-  }
-}
-
-async function offerDraw(){
-  if(mode!=='online')return openModal('<h2>Ничья</h2><p>Предложение ничьей доступно в онлайн-режиме.</p>');
-  try{await api('/api/room/draw',{method:'POST',body:JSON.stringify({roomId:online.room.id,uid:online.uid})});syncOnline()}
-  catch(e){openModal(`<h2>Ничья</h2><p>${esc(e.message)}</p>`)}
-}
-
-// ===== VIP-подсказка: только показывает ход, игрок решает сам =====
-async function hint(){
-  if(hintBusy)return;
-  hintBusy=true;
-  try{
-    const st=piecesFromPos(position);
-    const j=await api('/api/hint',{method:'POST',body:JSON.stringify({position,captureFrom:st.captureFrom})});
-    if(j.available){
-      hintMove={from:j.from,to:j.to};
-      selected=null;
-      render();
-      const badge=j.confidence?`<span class="hint-badge hint-badge-${esc(j.confidence)}">${esc(j.confidence)}</span>`:'';
-      openModal(`<div class="hint-modal">
-        <h2>💡 Подсказка VIP ${badge}</h2>
-        <p>${esc(j.reason)}</p>
-        <p>${esc(j.threat)}</p>
-        <p class="hint-meta">Глубина: ${j.depth||'—'} • Оценка: ${j.score!=null?Math.round(j.score):'—'}${j.nodes?` • Узлов: ${j.nodes.toLocaleString('ru-RU')}`:''}${j.exact?' • Точный решатель':''}</p>
-        <p class="hint-tip">🔵 Синяя клетка — <b>откуда</b> идти. 🟢 Зелёная клетка — <b>куда</b> идти. Решение за вами: сыграйте так или иначе.</p>
-        <div class="confirm-actions single">
-          <button class="primary" id="closeHint">Понятно</button>
-        </div>
-      </div>`);
-      $('#closeHint').onclick=closeModal;
-    }else openModal('<h2>Подсказка</h2><p>Допустимых ходов нет.</p>');
-  }catch(e){openModal(`<h2>Подсказка</h2><p>${esc(e.message)}</p>`)}
-  finally{hintBusy=false;render()}
-}
-
-function openShop(){
-  const card=(x,type)=>{
-    const owned=(type==='board'?me.inventory.boards:me.inventory.pieces).includes(x[0]);
-    const sel=(type==='board'?me.inventory.selectedBoard:me.inventory.selectedPieces)===x[0];
-    const vip=x[4]==='vip';
-    return `<div class="shop-item ${sel?'active':''}"><div class="shop-preview ${type}-${x[0]}">${type==='board'?'▦':'♛'}</div><b>${x[1]}</b><small>${x[2]}</small><span>${vip?'👑 Только VIP':`🪙 ${x[3]===0?'Бесплатно':x[3]}`}</span><button data-sel="${type}:${x[0]}" ${vip&&!me.vip?'disabled':''} data-owned="${owned}">${vip?(sel?'Выбрано':'Выбрать'):(owned?(sel?'Выбрано':'Выбрать'):(x[3]===0?'Получить':'Купить'))}</button></div>`;
-  };
-  openModal(`<div class="shop"><div class="shop-head"><div><h2>🛍 Магазин</h2><p>Выберите доску и стиль шашек.</p></div><div class="big-chips">🪙 ${me.chips}</div></div><h3>Доски</h3><div class="shop-grid">${store.boards.map(x=>card(x,'board')).join('')}</div><h3>Фигуры</h3><div class="shop-grid">${store.pieces.map(x=>card(x,'pieces')).join('')}</div></div>`);
-  $$('[data-sel]').forEach(b=>b.onclick=async()=>{
-    const [type,id]=b.dataset.sel.split(':');
-    try{
-      const owned=b.dataset.owned==='true';let j;
-      if(owned||id.startsWith('vip_'))j=await api('/api/shop/select',{method:'POST',body:JSON.stringify({type,itemId:id})});
-      else j=await api('/api/shop/buy',{method:'POST',body:JSON.stringify({type,itemId:id})});
-      me=j.user;openShop();refreshHome();
-    }catch(e){openModal(`<h2>Магазин</h2><p>${esc(e.message)}</p>`)}
-  });
-}
-
-async function dailyGift(){
-  try{
-    const j=await api('/api/daily-gift');
-    const amount=Number(j.reward||0).toLocaleString('ru-RU');
-    const days=j.day===7?'Последний день недели':'День '+j.day;
-    openModal(`<div class="daily-gift"><div class="daily-gift-icon">🎁</div><div class="gameover-kicker">SANI GROUP • ЕЖЕДНЕВНЫЙ ПОДАРОК</div><h2>ПОДАРОК</h2><p class="daily-gift-date">Серверная дата: <b>${esc(j.serverDateLabel)}</b></p><div class="daily-gift-day">${days}</div><div class="daily-gift-reward">🪙 ${amount}</div><div class="daily-gift-week">${[5000,10000,15000,20000,30000,50000,100000].map((n,i)=>`<span class="${i+1===j.day?'active':''} ${j.claimedToday&&i+1===j.day?'claimed':''}"><b>Д${i+1}</b><small>${n.toLocaleString('ru-RU')}</small></span>`).join('')}</div>${j.claimedToday?`<div class="daily-gift-status claimed">✓ Сегодня подарок уже получен. Следующий — День ${j.nextDay}: 🪙 ${Number(j.nextReward).toLocaleString('ru-RU')}</div>`:`<div class="daily-gift-status">Подарок готов к получению</div><button class="primary modal-btn daily-claim" id="claimDailyGift">🎁 Получить ${amount} 🪙</button>`}</div>`);
-    if(!j.claimedToday)$('#claimDailyGift').onclick=async()=>{
-      try{const x=await api('/api/daily-gift/claim',{method:'POST',body:'{}'});me=x.user;refreshHome();await dailyGift()}
-      catch(e){openModal(`<div class="hint-modal"><h2>🎁 Ежедневный подарок</h2><p>${esc(e.message)}</p></div>`)}
-    };
-  }catch(e){openModal(`<h2>🎁 Ежедневный подарок</h2><p>${esc(e.message)}</p>`)}
-}
-
-async function profile(){
-  openModal(`<div class="profile"><h2>👤 Профиль</h2><p><b>${esc(me.name)}</b>${me.vip?' 👑 VIP':''}</p><div class="profile-stat">🪙 <b>${me.chips}</b> фишек</div><p class="profile-note">📅 Серверная дата: <b>${esc(me.dailyGift?.serverDateLabel||'—')}</b></p><p>Победы: ${me.wins} • Поражения: ${me.losses} • Ничьи: ${me.draws}</p><p class="profile-note">ID аккаунта сохраняется на сервере отдельно от никнейма. При смене ника статистика, фишки, VIP и инвентарь остаются за вами.</p><p class="profile-note">История ников: ${(me.nameHistory||[]).map(esc).join(' → ')||esc(me.name)}</p><label class="profile-label">Новый никнейм</label><div class="profile-name-row"><input id="newName" maxlength="24" placeholder="Новый никнейм"><button class="primary" id="rename">Сохранить</button></div></div>`);
-  $('#rename').onclick=async()=>{
-    try{
-      const j=await api('/api/profile/name',{method:'POST',body:JSON.stringify({name:$('#newName').value})});
-      me=j.user;
-      P.setItem('saniUserName',me.name);
-      refreshHome();profile();
-    }catch(e){openModal(`<h2>Профиль</h2><p>${esc(e.message)}</p>`)}
-  };
-}
-
-async function leaderboard(){
-  try{
-    const j=await api('/api/leaderboard');
-    openModal(`<div class="leaderboard"><h2>🏆 ЛИДЕРЫ</h2>${j.players.map((p,i)=>`<div class="leader-row"><b>#${i+1}</b><span>${esc(p.name)}${p.vip?' 👑':''}</span><span>${p.wins}W / ${p.losses}L / ${p.draws}D</span><strong>${p.rating}</strong></div>`).join('')||'<p>Пока пусто.</p>'}</div>`);
-  }catch(e){openModal(`<h2>Лидеры</h2><p>${esc(e.message)}</p>`)}
-}
-
-async function admin(){
-  openModal(`<div class="form"><h2>🛡 Админ</h2><p>Защищённая панель SANI CHECKERS.</p><input id="adminPass" type="password" placeholder="Пароль"><button class="primary" id="adminLogin">Войти</button></div>`);
-  $('#adminLogin').onclick=async()=>{
-    try{await api('/api/admin/login',{method:'POST',body:JSON.stringify({password:$('#adminPass').value})});renderAdmin()}
-    catch(e){openModal(`<h2>Админ</h2><p>${esc(e.message||'Доступ отклонён')}</p>`)}
-  };
-}
-
-async function adminAction(action,id,extra={}){
-  try{const j=await api('/api/admin/action',{method:'POST',body:JSON.stringify({action,userId:id,...extra})});renderAdmin()}
-  catch(e){openModal(`<h2>Админ</h2><p>${esc(e.message)}</p>`)}
-}
-
-async function adminInput(action,id,title,label,value=''){
-  openModal(`<div class="form"><h2>🛡 ${esc(title)}</h2><label>${esc(label)}<input id="adminValue" value="${esc(value)}" autofocus></label><div class="form-row"><button class="primary" id="adminApply">Сохранить</button><button id="adminCancel">Отмена</button></div></div>`);
-  $('#adminCancel').onclick=renderAdmin;
-  $('#adminApply').onclick=async()=>{
-    const v=$('#adminValue').value;
-    if(action==='rename')return adminAction('rename',id,{name:v});
-    const n=Number(v);
-    if(!Number.isFinite(n))return openModal('<h2>Админ</h2><p>Введите корректное число.</p>');
-    return adminAction(action,id,{amount:n});
-  };
-}
-
-async function adminConfirm(action,id,title,text){
-  openModal(`<div class="form"><h2>🛡 ${esc(title)}</h2><p>${esc(text)}</p><div class="confirm-actions"><button class="primary" id="adminYes">Подтвердить</button><button id="adminNo">Отмена</button></div></div>`);
-  $('#adminNo').onclick=renderAdmin;
-  $('#adminYes').onclick=()=>adminAction(action,id);
-}
-
-async function renderAdmin(){
-  try{
-    const q=encodeURIComponent($('#adminSearch')?.value?.trim()||'');
-    const j=await api('/api/admin/players'+(q?`?q=${q}`:''));
-    const st=j.stats||{};
-    const rows=j.players.map(u=>`<div class="admin-user"><div><b>${esc(u.name)}${u.vip?' 👑':''}</b><small>ID ${esc(u.id.slice(0,10))}… • 🪙 ${u.chips} • ${u.wins}W/${u.losses}L/${u.draws}D • R ${u.rating} • ${u.banned?'БАН':'активен'}</small></div><div class="admin-actions"><button data-a="add" data-id="${u.id}">+Фишки</button><button data-a="set" data-id="${u.id}">Сумма</button><button data-a="vip" data-id="${u.id}">${u.vip?'VIP OFF':'VIP ON'}</button><button data-a="ban" data-id="${u.id}">${u.banned?'Разбан':'Бан'}</button><button data-a="rename" data-id="${u.id}">Ник</button></div></div>`).join('');
-    openModal(`<div class="admin"><div class="admin-head"><div><h2>🛡 Админ-панель</h2><p>Игроки, фишки, VIP, баны и аккаунты.</p></div><button id="adminLogout">Выйти</button></div><div class="admin-stats"><span>Игроки<b>${st.players||0}</b></span><span>VIP<b>${st.vip||0}</b></span><span>Баны<b>${st.banned||0}</b></span><span>Фишки<b>${st.totalChips||0}</b></span><span>Ожидают<b>${st.waitingRooms||0}</b></span><span>Онлайн столы<b>${st.playingRooms||0}</b></span><span>Боты<b>${st.botGames||0}</b></span></div><input id="adminSearch" class="admin-search" placeholder="Поиск по нику или ID" value="${esc($('#adminSearch')?.value||'')}"><div class="admin-list">${rows||'<p>Игроков не найдено.</p>'}</div><div class="admin-danger"><button id="clearDB">🗑 Очистить базу</button></div></div>`);
-    $('#adminSearch').addEventListener('keydown',e=>{if(e.key==='Enter')renderAdmin()});
-    $('#adminLogout').onclick=async()=>{await api('/api/admin/logout',{method:'POST'}).catch(()=>{});closeModal()};
-    $$('[data-a]').forEach(b=>b.onclick=async()=>{
-      const id=b.dataset.id,a=b.dataset.a;
-      const u=j.players.find(x=>x.id===id);
-      if(a==='add')return adminInput('chips',id,'Изменить фишки','Добавить или снять фишки','1000');
-      if(a==='set')return adminInput('set_chips',id,'Установить баланс','Новое количество фишек',String(u?.chips||0));
-      if(a==='rename')return adminInput('rename',id,'Переименовать игрока','Новый ник',u?.name||'');
-      if(a==='vip')return adminAction('vip',id,{value:!u.vip});
-      if(a==='ban')return adminAction('ban',id,{value:!u.banned});
-    });
-    $('#clearDB').onclick=()=>adminConfirm('clear_database',null,'Очистить базу?','Будут удалены игроки, сессии и партии. Это действие необратимо.');
-  }catch(e){openModal(`<h2>Админ</h2><p>${esc(e.message)}</p>`)}
-}
-
-$('#back').onclick=leave;
-$('#newGame').onclick=startNewFromGame;
-$('#flip').onclick=()=>{flipped=!flipped;render()};
-$('#endCapture').onclick=endCapture;
-$('#endCaptureTop').onclick=endCapture;
-$('#resign').onclick=resign;
-$('#drawOffer').onclick=offerDraw;
-$('#hintBtn').onclick=hint;
-$('#profileBtn').onclick=profile;
-$('#dailyGiftBtn').onclick=dailyGift;
-$('#shopBtn').onclick=openShop;
-$('#leaderBtn').onclick=leaderboard;
-$('#adminBtn').onclick=admin;
-$$('[data-action]').forEach(b=>b.onclick=()=>{
-  const a=b.dataset.action;
-  if(a==='computer')openBot();
-  if(a==='local')startLocal();
-  if(a==='online')openOnline();
-  if(a==='rules')openModal(RULES);
-  if(a==='about')openModal(ABOUT);
-  if(a==='shop')openShop();
-  if(a==='dailyGift')dailyGift();
-});
-$('#sendChat').onclick=sendChat;
-$('#chatInput').addEventListener('keydown',e=>{if(e.key==='Enter')sendChat()});
-
+async function resign(){if(mode==='local'){openGameOver('Партия завершена');return}if(mode==='bot'){try{const j=await api('/api/bot/resign',{method:'POST',body:JSON.stringify({gameId:botGameId})});me=j.user;sessionStorage.removeItem('saniCheckersBot');openGameOver('Вы сдались. Ставка проиграна.')}catch(e){openModal(`<h2>Сдача</h2><p>${esc(e.message)}</p>`)}return}if(mode==='online'){if(online.room?.result)return;try{await api('/api/room/resign',{method:'POST',body:JSON.stringify({roomId:online.room.id,uid:online.uid})});await syncOnline()}catch(e){openModal(`<h2>Сдача</h2><p>${esc(e.message)}</p>`)}}}
+async function offerDraw(){if(mode!=='online')return openModal('<h2>Ничья</h2><p>Предложение ничьей доступно в онлайн-режиме.</p>');try{await api('/api/room/draw',{method:'POST',body:JSON.stringify({roomId:online.room.id,uid:online.uid})});syncOnline()}catch(e){openModal(`<h2>Ничья</h2><p>${esc(e.message)}</p>`)}}
+async function hint(){if(hintBusy)return;hintBusy=true;render();try{const st=piecesFromPos(position);const j=await api('/api/hint',{method:'POST',body:JSON.stringify({position,captureFrom:st.captureFrom})});if(j.available){hintTarget=j.to;selected=j.from;render();openModal(`<div class="hint-modal"><h2>💡 Подсказка VIP</h2><p><b>Ход:</b> ${esc(j.fromName)} → ${esc(j.toName)}</p><p>${esc(j.reason)}</p><p>${esc(j.threat)}</p></div>`)}else openModal('<h2>Подсказка</h2><p>Допустимых ходов нет.</p>')}catch(e){openModal(`<h2>Подсказка</h2><p>${esc(e.message)}</p>`)}finally{hintBusy=false;render()}}
+function openShop(){const card=(x,type)=>{const owned=(type==='board'?me.inventory.boards:me.inventory.pieces).includes(x[0]),sel=(type==='board'?me.inventory.selectedBoard:me.inventory.selectedPieces)===x[0],vip=x[4]==='vip';return `<div class="shop-item ${sel?'active':''}"><div class="shop-preview ${type}-${x[0]}">${type==='board'?'▦':'♛'}</div><b>${x[1]}</b><small>${x[2]}</small><span>${vip?'👑 Только VIP':`🪙 ${x[3]===0?'Бесплатно':x[3]}`}</span><button data-sel="${type}:${x[0]}" ${vip&&!me.vip?'disabled':''} data-owned="${owned}">${vip?(sel?'Выбрано':'Выбрать'):(owned?(sel?'Выбрано':'Выбрать'):(x[3]===0?'Получить':'Купить'))}</button></div>`};openModal(`<div class="shop"><div class="shop-head"><div><h2>🛍 Магазин</h2><p>Выберите доску и стиль шашек.</p></div><div class="big-chips">🪙 ${me.chips}</div></div><h3>Доски</h3><div class="shop-grid">${store.boards.map(x=>card(x,'board')).join('')}</div><h3>Фигуры</h3><div class="shop-grid">${store.pieces.map(x=>card(x,'pieces')).join('')}</div></div>`);$$('[data-sel]').forEach(b=>b.onclick=async()=>{const [type,id]=b.dataset.sel.split(':');try{const owned=b.dataset.owned==='true';let j;if(owned||id.startsWith('vip_'))j=await api('/api/shop/select',{method:'POST',body:JSON.stringify({type,itemId:id})});else j=await api('/api/shop/buy',{method:'POST',body:JSON.stringify({type,itemId:id})});me=j.user;openShop();refreshHome()}catch(e){openModal(`<h2>Магазин</h2><p>${esc(e.message)}</p>`)}})}
+async function dailyGift(){try{const j=await api('/api/daily-gift');const amount=Number(j.reward||0).toLocaleString('ru-RU');const days=j.day===7?'Последний день недели':'День '+j.day;openModal(`<div class="daily-gift"><div class="daily-gift-icon">🎁</div><div class="gameover-kicker">SANI GROUP • ЕЖЕДНЕВНЫЙ ПОДАРОК</div><h2>ПОДАРОК</h2><p class="daily-gift-date">Серверная дата: <b>${esc(j.serverDateLabel)}</b></p><div class="daily-gift-day">${days}</div><div class="daily-gift-reward">🪙 ${amount}</div><div class="daily-gift-week">${[1000,2000,3000,4000,5000,6000,10000].map((n,i)=>`<span class="${i+1===j.day?'active':''} ${j.claimedToday&&i+1===j.day?'claimed':''}"><b>Д${i+1}</b><small>${n.toLocaleString('ru-RU')}</small></span>`).join('')}</div>${j.claimedToday?`<div class="daily-gift-status claimed">✓ Сегодня подарок уже получен. Следующий — День ${j.nextDay}: 🪙 ${Number(j.nextReward).toLocaleString('ru-RU')}</div>`:`<div class="daily-gift-status">Подарок готов к получению</div><button class="primary modal-btn daily-claim" id="claimDailyGift">🎁 Получить ${amount} 🪙</button>`}</div>`);if(!j.claimedToday)$('#claimDailyGift').onclick=async()=>{try{const x=await api('/api/daily-gift/claim',{method:'POST',body:'{}'});me=x.user;refreshHome();await dailyGift()}catch(e){openModal(`<div class="hint-modal"><h2>🎁 Ежедневный подарок</h2><p>${esc(e.message)}</p></div>`)}}}catch(e){openModal(`<h2>🎁 Ежедневный подарок</h2><p>${esc(e.message)}</p>`)}}
+async function profile(){openModal(`<div class="profile"><h2>👤 Профиль</h2><p><b>${esc(me.name)}</b>${me.vip?' 👑 VIP':''}</p><div class="profile-stat">🪙 <b>${me.chips}</b> фишек</div><p class="profile-note">📅 Серверная дата: <b>${esc(me.dailyGift?.serverDateLabel||'—')}</b></p><p>Победы: ${me.wins} • Поражения: ${me.losses} • Ничьи: ${me.draws}</p><p class="profile-note">ID аккаунта сохраняется на сервере отдельно от никнейма. При смене ника ваши статистика, фишки, VIP и инвентарь остаются за тем же игроком.</p><p class="profile-note">История ников: ${(me.nameHistory||[]).map(esc).join(' → ')||esc(me.name)}</p><label class="profile-label">Новый никнейм</label><div class="profile-name-row"><input id="newName" maxlength="24" placeholder="Новый никнейм"><button class="primary" id="rename">Сохранить</button></div></div>`);$('#rename').onclick=async()=>{try{const j=await api('/api/profile/name',{method:'POST',body:JSON.stringify({name:$('#newName').value})});me=j.user;refreshHome();profile()}catch(e){openModal(`<h2>Профиль</h2><p>${esc(e.message)}</p>`)}}}
+async function leaderboard(){try{const j=await api('/api/leaderboard');openModal(`<div class="leaderboard"><h2>🏆 ЛИДЕРЫ</h2>${j.players.map((p,i)=>`<div class="leader-row"><b>#${i+1}</b><span>${esc(p.name)}${p.vip?' 👑':''}</span><span>${p.wins}W / ${p.losses}L / ${p.draws}D</span><strong>${p.rating}</strong></div>`).join('')||'<p>Пока пусто.</p>'}</div>`)}catch(e){openModal(`<h2>Лидеры</h2><p>${esc(e.message)}</p>`)}}
+async function admin(){openModal(`<div class="form"><h2>🛡 Админ</h2><p>Защищённая панель SANI CHECKERS.</p><input id="adminPass" type="password" placeholder="Пароль"><button class="primary" id="adminLogin">Войти</button></div>`);$('#adminLogin').onclick=async()=>{try{await api('/api/admin/login',{method:'POST',body:JSON.stringify({password:$('#adminPass').value})});renderAdmin()}catch(e){openModal(`<h2>Админ</h2><p>${esc(e.message||'Доступ отклонён')}</p>`)}}}
+async function adminAction(action,id,extra={}){try{const j=await api('/api/admin/action',{method:'POST',body:JSON.stringify({action,userId:id,...extra})});renderAdmin()}catch(e){openModal(`<h2>Админ</h2><p>${esc(e.message)}</p>`)} }
+async function adminInput(action,id,title,label,value=''){openModal(`<div class="form"><h2>🛡 ${esc(title)}</h2><label>${esc(label)}<input id="adminValue" value="${esc(value)}" autofocus></label><div class="form-row"><button class="primary" id="adminApply">Сохранить</button><button id="adminCancel">Отмена</button></div></div>`);$('#adminCancel').onclick=renderAdmin;$('#adminApply').onclick=async()=>{const v=$('#adminValue').value;if(action==='rename')return adminAction('rename',id,{name:v});const n=Number(v);if(!Number.isFinite(n))return openModal('<h2>Админ</h2><p>Введите корректное число.</p>');return adminAction(action,id,{amount:n})}}
+async function adminConfirm(action,id,title,text){openModal(`<div class="form"><h2>🛡 ${esc(title)}</h2><p>${esc(text)}</p><div class="confirm-actions"><button class="primary" id="adminYes">Подтвердить</button><button id="adminNo">Отмена</button></div></div>`);$('#adminNo').onclick=renderAdmin;$('#adminYes').onclick=()=>adminAction(action,id)}
+async function renderAdmin(){try{const q=encodeURIComponent($('#adminSearch')?.value?.trim()||'');const j=await api('/api/admin/players'+(q?`?q=${q}`:''));const st=j.stats||{};const rows=j.players.map(u=>`<div class="admin-user"><div><b>${esc(u.name)}${u.vip?' 👑':''}</b><small>ID ${esc(u.id.slice(0,10))}… • 🪙 ${u.chips} • ${u.wins}W/${u.losses}L/${u.draws}D • R ${u.rating} • ${u.banned?'БАН':'активен'}</small></div><div class="admin-actions"><button data-a="add" data-id="${u.id}">+Фишки</button><button data-a="set" data-id="${u.id}">Сумма</button><button data-a="vip" data-id="${u.id}">${u.vip?'VIP OFF':'VIP ON'}</button><button data-a="ban" data-id="${u.id}">${u.banned?'Разбан':'Бан'}</button><button data-a="rename" data-id="${u.id}">Ник</button><button data-a="delete" data-id="${u.id}">Удалить</button></div></div>`).join('');openModal(`<div class="admin"><div class="admin-head"><div><h2>🛡 Админ-панель</h2><p>Игроки, фишки, VIP, баны и аккаунты.</p></div><button id="adminLogout">Выйти</button></div><div class="admin-stats"><span>Игроки<b>${st.players||0}</b></span><span>VIP<b>${st.vip||0}</b></span><span>Баны<b>${st.banned||0}</b></span><span>Фишки<b>${st.totalChips||0}</b></span><span>Ожидают<b>${st.waitingRooms||0}</b></span><span>Онлайн столы<b>${st.playingRooms||0}</b></span><span>Боты<b>${st.botGames||0}</b></span></div><input id="adminSearch" class="admin-search" placeholder="Поиск по нику или ID" value="${esc($('#adminSearch')?.value||'')}"><div class="admin-list">${rows||'<p>Игроков не найдено.</p>'}</div><div class="admin-danger"><button id="clearDB">🗑 Очистить базу</button></div></div>`);$('#adminSearch').addEventListener('keydown',e=>{if(e.key==='Enter')renderAdmin()});$('#adminLogout').onclick=async()=>{await api('/api/admin/logout',{method:'POST'}).catch(()=>{});closeModal()};$$('[data-a]').forEach(b=>b.onclick=async()=>{const id=b.dataset.id,a=b.dataset.a;const u=j.players.find(x=>x.id===id);if(a==='add')return adminInput('chips',id,'Изменить фишки','Добавить или снять фишки','1000');if(a==='set')return adminInput('set_chips',id,'Установить баланс','Новое количество фишек',String(u?.chips||0));if(a==='rename')return adminInput('rename',id,'Переименовать игрока','Новый ник',u?.name||'');if(a==='vip')return adminAction('vip',id,{value:!u.vip});if(a==='ban')return adminAction('ban',id,{value:!u.banned});if(a==='delete')return adminConfirm('delete',id,'Удалить аккаунт?',`Игрок «${u?.name||''}» будет удалён. Активные партии будут отменены с возвратом ставки.`)});$('#clearDB').onclick=()=>adminConfirm('clear_database',null,'Очистить базу?','Будут удалены игроки, сессии и партии. Это действие необратимо.')}catch(e){openModal(`<h2>Админ</h2><p>${esc(e.message)}</p>`)}}
+$('#back').onclick=leave;$('#newGame').onclick=startNewFromGame;$('#flip').onclick=()=>{flipped=!flipped;render()};$('#resign').onclick=resign;$('#drawOffer').onclick=offerDraw;$('#hintBtn').onclick=hint;$('#profileBtn').onclick=profile;$('#dailyGiftBtn').onclick=dailyGift;$('#shopBtn').onclick=openShop;$('#leaderBtn').onclick=leaderboard;$('#adminBtn').onclick=admin;$$('[data-action]').forEach(b=>b.onclick=()=>{const a=b.dataset.action;if(a==='computer')openBot();if(a==='local')startLocal();if(a==='online')openOnline();if(a==='rules')openModal(RULES);if(a==='about')openModal(ABOUT);if(a==='shop')openShop();if(a==='dailyGift')dailyGift()});
+$('#sendChat').onclick=sendChat;$('#chatInput').addEventListener('keydown',e=>{if(e.key==='Enter')sendChat()});
 const bgMusic=$('#bgMusic');
 bgMusic.loop=true;
+// Повторяется только после полного воспроизведения файла.
+// Никакой фиксированной длительности/таймера нет: браузер использует фактический audio.duration.
 bgMusic.addEventListener('ended',()=>{if(!musicOn)return;bgMusic.currentTime=0;bgMusic.play().catch(()=>{})});
-$('#musicBtn').onclick=async()=>{
-  const a=bgMusic;a.loop=true;
-  if(musicOn){a.pause();musicOn=false;localStorage.setItem('saniCheckersMusic','off')}
-  else{try{await a.play();musicOn=true;localStorage.setItem('saniCheckersMusic','on')}catch{openModal('<h2>Музыка</h2><p>Браузер разрешит музыку после действия пользователя.</p>')}}
-  $('#musicBtn').textContent=musicOn?'🔊':'🔇';
-};
+$('#musicBtn').onclick=async()=>{const a=bgMusic;a.loop=true;if(musicOn){a.pause();musicOn=false;localStorage.setItem('saniCheckersMusic','off')}else{try{await a.play();musicOn=true;localStorage.setItem('saniCheckersMusic','on')}catch{openModal('<h2>Музыка</h2><p>Браузер разрешит музыку после действия пользователя.</p>')}}$('#musicBtn').textContent=musicOn?'🔊':'🔇'};
 if(localStorage.getItem('saniCheckersMusic')==='on'){
   const resumeMusic=()=>{if(musicOn)return;bgMusic.loop=true;bgMusic.play().then(()=>{musicOn=true;$('#musicBtn').textContent='🔊';localStorage.setItem('saniCheckersMusic','on')}).catch(()=>{})};
   document.addEventListener('pointerdown',resumeMusic,{once:true,passive:true});
   document.addEventListener('keydown',resumeMusic,{once:true});
 }
-
-// ===== Восстановление незавершённых партий =====
-async function tryReconnect(){
-  try{
-    const saved=JSON.parse(P.getItem('saniCheckersRoom')||'null');if(!saved)return;
-    const j=await api('/api/room/reconnect',{method:'POST',body:JSON.stringify(saved)});
-    online={room:j.room,uid:j.uid,side:j.self};position=j.room.position;mode='online';gameOverShown=false;
-    $('#gameMode').textContent='ОНЛАЙН';
-    $('#gameSub').textContent=`Стол ${j.room.id}`;
-    $('#roomLabel').textContent=`Стол ${j.room.id}`;
-    $('#onlineBar').hidden=false;showGame();startPoll();
-  }catch{P.removeItem('saniCheckersRoom')}
-}
-
-async function tryReconnectBot(){
-  try{
-    const saved=JSON.parse(P.getItem('saniCheckersBot')||'null');if(!saved?.gameId)return;
-    const j=await api(`/api/bot/state?gameId=${encodeURIComponent(saved.gameId)}`);
-    if(j.status!=='playing'){P.removeItem('saniCheckersBot');return}
-    botGameId=j.gameId;botLevel=j.level;botStake=j.stake;position=j.position;me=j.user;mode='bot';
-    $('#gameMode').textContent='ИГРА С БОТОМ';
-    $('#gameSub').textContent=`${j.levelName}${j.stake?` • ставка ${j.stake}`:''}`;
-    $('#whiteName').textContent=me.name;$('#blackName').textContent='🤖 SANI AI';
-    $('#onlineBar').hidden=true;showGame();
-  }catch{P.removeItem('saniCheckersBot')}
-}
-
-// ===== AUTH — автовосстановление из MongoDB =====
+async function tryReconnect(){try{const saved=JSON.parse(sessionStorage.getItem('saniCheckersRoom')||'null');if(!saved)return;const j=await api('/api/room/reconnect',{method:'POST',body:JSON.stringify(saved)});online={room:j.room,uid:j.uid,side:j.self};position=j.room.position;captureFrom=j.room.captureFrom??null;mode='online';gameOverShown=false;$('#gameMode').textContent='ОНЛАЙН';$('#gameSub').textContent=`Стол ${j.room.id}`;$('#roomLabel').textContent=`Стол ${j.room.id}`;$('#onlineBar').hidden=false;showGame();startPoll()}catch{sessionStorage.removeItem('saniCheckersRoom')}}
+async function tryReconnectBot(){try{const saved=JSON.parse(sessionStorage.getItem('saniCheckersBot')||'null');if(!saved?.gameId)return;const j=await api(`/api/bot/state?gameId=${encodeURIComponent(saved.gameId)}`);if(j.status!=='playing'){sessionStorage.removeItem('saniCheckersBot');return}botGameId=j.gameId;botLevel=j.level;botStake=j.stake;position=j.position;captureFrom=j.captureFrom??null;me=j.user;mode='bot';$('#gameMode').textContent='ИГРА С БОТОМ';$('#gameSub').textContent=`${j.levelName}${j.levelStyle?` • ${j.levelStyle}`:''}${j.stake?` • ставка ${j.stake}`:''}`;$('#whiteName').textContent=me.name;$('#blackName').textContent='🤖 SANI AI';$('#onlineBar').hidden=true;showGame()}catch{sessionStorage.removeItem('saniCheckersBot')}}
 async function auth(){
   try{
-    const savedUserId = P.getItem('saniUserId') || '';
-    const j = await api('/api/auth', { method: 'POST', body: JSON.stringify({ userId: savedUserId }) });
-
-    if (j.needsName) {
-      openModal(`<div class="auth-card">
-        <div class="auth-logo">♛</div>
-        <h2>Добро пожаловать в SANI CHECKERS</h2>
-        <p>Введите никнейм. Если вы уже играли под ним — аккаунт восстановится, статистика и фишки сохранятся.</p>
-        <input id="firstNick" maxlength="24" placeholder="Ваш никнейм">
-        <button class="primary" id="createAccount">Продолжить</button>
-      </div>`);
-      $('#createAccount').onclick = async () => {
-        try {
-          const nick = $('#firstNick').value.trim();
-          if (!nick) return;
-          const x = await api('/api/auth', { method:'POST', body: JSON.stringify({ name: nick }) });
-          me = x.user; store = x.store;
-          P.setItem('saniUserId', me.id);
-          P.setItem('saniUserName', me.name);
-          closeModal(); refreshHome();
-          if (x.restored) {
-            openModal('<div class="hint-modal"><h2>👋 С возвращением!</h2><p>Аккаунт восстановлен, вся статистика и фишки на месте.</p></div>');
-            setTimeout(closeModal, 1600);
-          }
-          if (P.getItem('saniCheckersRoom')) await tryReconnect();
-          else if (P.getItem('saniCheckersBot')) await tryReconnectBot();
-        } catch(e){ openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`); }
-      };
-      return;
+    const recoveryToken=localStorage.getItem('saniCheckersRecovery')||'';
+    const j=await api('/api/auth',{method:'POST',body:JSON.stringify(recoveryToken?{recoveryToken}: {})});
+    if(j.recoveryToken)localStorage.setItem('saniCheckersRecovery',j.recoveryToken);
+    if(j.needsName){
+      openModal(`<div class="auth-card"><div class="auth-logo">♛</div><h2>Добро пожаловать в SANI CHECKERS</h2><p>Введите никнейм только для первого входа на этом устройстве.</p><input id="firstNick" maxlength="24" placeholder="Ваш никнейм"><button class="primary" id="createAccount">Создать игрока</button></div>`);
+      $('#createAccount').onclick=async()=>{
+        try{
+          const x=await api('/api/auth',{method:'POST',body:JSON.stringify({name:$('#firstNick').value,recoveryToken:localStorage.getItem('saniCheckersRecovery')||''})});
+          me=x.user;store=x.store;if(x.recoveryToken)localStorage.setItem('saniCheckersRecovery',x.recoveryToken);
+          closeModal();refreshHome();tryReconnect()
+        }catch(e){openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`)}
+      }
+    }else{
+      me=j.user;store=j.store;refreshHome();
+      if(sessionStorage.getItem('saniCheckersRoom')){await tryReconnect()}else{await tryReconnectBot()}
     }
-
-    me = j.user; store = j.store;
-    P.setItem('saniUserId', me.id);
-    P.setItem('saniUserName', me.name);
-    refreshHome();
-
-    if (P.getItem('saniCheckersRoom')) await tryReconnect();
-    else if (P.getItem('saniCheckersBot')) await tryReconnectBot();
-  } catch(e){
-    openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`);
-  }
+  }catch(e){openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`)}
 }
 
-async function authWithRetry(attempt = 1) {
-  try {
-    await auth();
-  } catch (e) {
-    if (attempt < 5) {
-      // Render после сна просыпается до 30 секунд. Ретраим без участия игрока.
-      setTimeout(() => authWithRetry(attempt + 1), 3000);
-    } else {
-      openModal(`<h2>Сервер недоступен</h2><p>Не удалось подключиться после нескольких попыток. Обновите страницу.</p>`);
-    }
-  }
-}
-
-authWithRetry();
+auth();
