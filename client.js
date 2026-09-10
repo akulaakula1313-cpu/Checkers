@@ -2,12 +2,19 @@ const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],esc
 const START_POSITION='b1b1b1b1/1b1b1b1b/b1b1b1b1/8/8/1w1w1w1w/w1w1w1w1/1w1w1w1w w';
 let me=null,store=null,mode='menu',position=START_POSITION,captureFrom=null,selected=null,flipped=false,account=null,botGameId=null,online={room:null,uid:null,side:null},botLevel=2,botStake=0,poll=null,musicOn=false,hintBusy=false,drawPrompted=false,gameOverShown=false,rematchConnecting=false,hintTarget=null;
 const GL={w:'●',W:'♛',b:'●',B:'♛'};const nameOf=c=>c==='w'?'Белые':'Чёрные';
-/* `position` (FEN-like string) never encodes which piece is mid-capture — that lives in the
-   separate `captureFrom` global, kept in sync with the server everywhere `position` is set.
-   piecesFromPos attaches the current captureFrom so every consumer of the parsed state
-   (render, checkersMoves, clickSquare, hint) sees the real, server-authoritative value. */
 function piecesFromPos(s){const [pl,side]=s.split(/\s+/),b=Array(64).fill(null);let r=7,f=0;for(const ch of pl){if(ch==='/'){r--;f=0}else if(/[1-8]/.test(ch))f+=+ch;else b[r*8+f++]=ch}return{board:b,side,captureFrom}}
-function api(url,opt={}){const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),7000);return fetch(url,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})},credentials:'same-origin',signal:ctrl.signal,cache:'no-store'}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.error||`Ошибка ${r.status}`);e.status=r.status;throw e}return j}).catch(e=>{if(e.name==='AbortError')throw new Error('Сервер отвечает слишком долго');throw e}).finally(()=>clearTimeout(timer))}
+
+// ---- ОБНОВЛЕНО: подставляем токен из localStorage в заголовок X-Session-Token ----
+function api(url,opt={}){
+  const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),7000);
+  const headers={'Content-Type':'application/json',...(opt.headers||{})};
+  const savedToken=localStorage.getItem('sani_checkers_token');
+  if(savedToken)headers['X-Session-Token']=savedToken;
+  return fetch(url,{...opt,headers,credentials:'same-origin',signal:ctrl.signal,cache:'no-store'})
+    .then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.error||`Ошибка ${r.status}`);e.status=r.status;throw e}return j})
+    .catch(e=>{if(e.name==='AbortError')throw new Error('Сервер отвечает слишком долго');throw e})
+    .finally(()=>clearTimeout(timer))
+}
 function openModal(html){$('#modalContent').innerHTML=html;$('#modal').hidden=false}function closeModal(){$('#modal').hidden=true;$('#modalContent').innerHTML=''}$('#closeModal').onclick=closeModal;
 const RULES=`<div class="about-content"><h2>📖 Правила SANI CHECKERS</h2><h3>1. Доска</h3><p>8×8, игра идёт только по тёмным клеткам. В начале у каждого игрока по 12 шашек: они занимают первые три ряда с каждой стороны, по 4 шашки в каждом ряду.</p><h3>2. Простая шашка</h3><p>Ходит по диагонали на одну свободную клетку вперёд. Взятие разрешено вперёд и назад.</p><h3>3. Обязательное взятие</h3><p>Если у игрока есть хотя бы одно взятие, обычный ход запрещён.</p><h3>4. Серия взятий</h3><p>После взятия, если той же шашкой доступно ещё взятие, продолжение этой же шашкой обязательно. Переключаться на другую шашку нельзя. Ход переходит сопернику только когда эта шашка больше не может бить.</p><h3>5. Несколько вариантов</h3><p>При нескольких продолжениях можно выбрать любой допустимый вариант.</p><h3>6. Дамка</h3><p>При достижении последней линии шашка становится дамкой. Дамка ходит по диагонали на любое число свободных клеток и берёт фигуру соперника на расстоянии.</p><h3>7. Победа</h3><p>Победа — если у соперника не осталось шашек или нет ни одного допустимого хода.</p><h3>8. Онлайн</h3><p>Сервер является источником истины: проверяет обязательное взятие, серии, дамку, результат, ставки и выплаты.</p></div>`;
 const ABOUT=`<div class="about-content"><h2>🏢 SANI GROUP</h2><p><b>Проект:</b> SANI CHECKERS.</p><p>Премиальная веб-игра с локальным режимом, ИИ, онлайн-столами, магазином, VIP-подсказками и серверной проверкой ходов.</p><p>Правила SANI CHECKERS: простая шашка берёт вперёд и назад; дамка ходит и берёт на любое расстояние; обязательное взятие; продолжение серии добровольно.</p><div class="about-note">© ${new Date().getFullYear()} SANI GROUP.</div></div>`;
@@ -23,13 +30,12 @@ if(!myTurn)hintTarget=null;b.innerHTML='';b.className=`board board-${me?.invento
 $('#message').textContent=gameStatusText(st,myTurn);$('#captureInfo').textContent=st.captureFrom!=null?'Продолжайте этой же шашкой — взятие обязательно':'Нет активной серии';$('#hintBtn').hidden=!me?.vip||!myTurn;$('#whiteClock').textContent='';$('#blackClock').textContent='';const roomStake=mode==='online'&&online.room?Number(online.room.stake||0):mode==='bot'?Number(botStake||0):0;$('#stakeInfo').textContent=roomStake?`🪙 ${roomStake.toLocaleString('ru-RU')} с игрока`:'Без ставки';$('#bankInfo').textContent=roomStake?`Банк: ${(mode==='online'?Number(online.room.bank||roomStake*2):roomStake*2).toLocaleString('ru-RU')}`:'Банк: 0';
 }
 function getLegal(st){return window.checkersMoves?window.checkersMoves(st):[]}
-// compact client-side legal move generator mirrors server
 function checkersMoves(st){const D=[[1,1],[1,-1],[-1,1],[-1,-1]],b=st.board,enemy=c=>c==='w'?'b':'w',side=c=>c&&c.toLowerCase()==='w'?'w':c&&c.toLowerCase()==='b'?'b':null,inside=(f,r)=>f>=0&&f<8&&r>=0&&r<8,capFrom=st.captureFrom;
 function caps(from){const p=b[from],c=side(p),f=from%8,r=Math.floor(from/8),o=[];if(!p||c!==st.side)return o;if(p==='w'||p==='b'){for(const[df,dr]of D){const mf=f+df,mr=r+dr,tf=f+2*df,tr=r+2*dr;if(inside(tf,tr)&&b[mf+mr*8]&&side(b[mf+mr*8])===enemy(c)&&!b[tf+tr*8])o.push({from,to:tf+tr*8,capture:mf+mr*8})}}else for(const[df,dr]of D){let F=f+df,R=r+dr,seen=-1;while(inside(F,R)){const s=F+R*8,q=b[s];if(q){if(side(q)===c)break;if(seen!==-1)break;seen=s}else if(seen!==-1)o.push({from,to:s,capture:seen});F+=df;R+=dr}}return o}
 function quiet(from){const p=b[from],c=side(p),f=from%8,r=Math.floor(from/8),o=[];if(p==='w'||p==='b'){const dr=c==='w'?1:-1;for(const df of[-1,1]){const F=f+df,R=r+dr;if(inside(F,R)&&!b[F+R*8])o.push({from,to:F+R*8})}}else for(const[df,dr]of D){let F=f+df,R=r+dr;while(inside(F,R)&&!b[F+R*8]){o.push({from,to:F+R*8});F+=df;R+=dr}}return o}
 if(capFrom!=null)return caps(capFrom);let c=[];for(let i=0;i<64;i++)if(side(b[i])===st.side)c.push(...caps(i));if(c.length)return c;for(let i=0;i<64;i++)if(side(b[i])===st.side)c.push(...quiet(i));return c}
 window.checkersMoves=checkersMoves;
-function applyLocal(m){const st=piecesFromPos(position);const p=st.board[m.from],c=st.side;st.board[m.from]=null;if(m.capture!=null)st.board[m.capture]=null;let q=p,r=Math.floor(m.to/8);if(p==='w'&&r===7)q='W';if(p==='b'&&r===0)q='B';st.board[m.to]=q;/* Quiet move ends the turn even if this move created a new capture. */let more=m.capture!=null?checkersMoves({...st,side:c,captureFrom:null}).filter(x=>x.from===m.to&&x.capture!=null):[];st.side=more.length?c:(c==='w'?'b':'w');captureFrom=more.length?m.to:null;position=serialize(st);st.captureFrom=captureFrom;selected=null;render();checkLocalEnd(st)}
+function applyLocal(m){const st=piecesFromPos(position);const p=st.board[m.from],c=st.side;st.board[m.from]=null;if(m.capture!=null)st.board[m.capture]=null;let q=p,r=Math.floor(m.to/8);if(p==='w'&&r===7)q='W';if(p==='b'&&r===0)q='B';st.board[m.to]=q;let more=m.capture!=null?checkersMoves({...st,side:c,captureFrom:null}).filter(x=>x.from===m.to&&x.capture!=null):[];st.side=more.length?c:(c==='w'?'b':'w');captureFrom=more.length?m.to:null;position=serialize(st);st.captureFrom=captureFrom;selected=null;render();checkLocalEnd(st)}
 function serialize(st){let p='';for(let r=7;r>=0;r--){let e=0;for(let f=0;f<8;f++){const x=st.board[r*8+f];if(!x)e++;else{if(e){p+=e;e=0}p+=x}}if(e)p+=e;if(r)p+='/'}return p+' '+st.side}
 function checkLocalEnd(st){const res=gameResult(st);if(res)openGameOver(res==='w'?'Победили белые':res==='b'?'Победили чёрные':'Ничья')}
 function gameResult(st){const w=st.board.some(p=>p&&p.toLowerCase()==='w'),b=st.board.some(p=>p&&p.toLowerCase()==='b');if(!w)return'b';if(!b)return'w';if(!checkersMoves(st).length)return st.side==='w'?'b':'w';return null}
@@ -92,8 +98,6 @@ $('#back').onclick=leave;$('#newGame').onclick=startNewFromGame;$('#flip').oncli
 $('#sendChat').onclick=sendChat;$('#chatInput').addEventListener('keydown',e=>{if(e.key==='Enter')sendChat()});
 const bgMusic=$('#bgMusic');
 bgMusic.loop=true;
-// Повторяется только после полного воспроизведения файла.
-// Никакой фиксированной длительности/таймера нет: браузер использует фактический audio.duration.
 bgMusic.addEventListener('ended',()=>{if(!musicOn)return;bgMusic.currentTime=0;bgMusic.play().catch(()=>{})});
 $('#musicBtn').onclick=async()=>{const a=bgMusic;a.loop=true;if(musicOn){a.pause();musicOn=false;localStorage.setItem('saniCheckersMusic','off')}else{try{await a.play();musicOn=true;localStorage.setItem('saniCheckersMusic','on')}catch{openModal('<h2>Музыка</h2><p>Браузер разрешит музыку после действия пользователя.</p>')}}$('#musicBtn').textContent=musicOn?'🔊':'🔇'};
 if(localStorage.getItem('saniCheckersMusic')==='on'){
@@ -103,5 +107,31 @@ if(localStorage.getItem('saniCheckersMusic')==='on'){
 }
 async function tryReconnect(){try{const saved=JSON.parse(sessionStorage.getItem('saniCheckersRoom')||'null');if(!saved)return;const j=await api('/api/room/reconnect',{method:'POST',body:JSON.stringify(saved)});online={room:j.room,uid:j.uid,side:j.self};position=j.room.position;captureFrom=j.room.captureFrom??null;mode='online';gameOverShown=false;$('#gameMode').textContent='ОНЛАЙН';$('#gameSub').textContent=`Стол ${j.room.id}`;$('#roomLabel').textContent=`Стол ${j.room.id}`;$('#onlineBar').hidden=false;showGame();startPoll()}catch{sessionStorage.removeItem('saniCheckersRoom')}}
 async function tryReconnectBot(){try{const saved=JSON.parse(sessionStorage.getItem('saniCheckersBot')||'null');if(!saved?.gameId)return;const j=await api(`/api/bot/state?gameId=${encodeURIComponent(saved.gameId)}`);if(j.status!=='playing'){sessionStorage.removeItem('saniCheckersBot');return}botGameId=j.gameId;botLevel=j.level;botStake=j.stake;position=j.position;captureFrom=j.captureFrom??null;me=j.user;mode='bot';$('#gameMode').textContent='ИГРА С БОТОМ';$('#gameSub').textContent=`${j.levelName}${j.levelStyle?` • ${j.levelStyle}`:''}${j.stake?` • ставка ${j.stake}`:''}`;$('#whiteName').textContent=me.name;$('#blackName').textContent='🤖 SANI AI';$('#onlineBar').hidden=true;showGame()}catch{sessionStorage.removeItem('saniCheckersBot')}}
-async function auth(){try{const j=await api('/api/auth',{method:'POST',body:JSON.stringify({})});if(j.needsName){openModal(`<div class="auth-card"><div class="auth-logo">♛</div><h2>Добро пожаловать в SANI CHECKERS</h2><p>Введите никнейм.</p><input id="firstNick" maxlength="24" placeholder="Ваш никнейм"><button class="primary" id="createAccount">Создать игрока</button></div>`);$('#createAccount').onclick=async()=>{try{const x=await api('/api/auth',{method:'POST',body:JSON.stringify({name:$('#firstNick').value})});me=x.user;store=x.store;closeModal();refreshHome();tryReconnect()}catch(e){openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`)}}}else{me=j.user;store=j.store;refreshHome();if(sessionStorage.getItem('saniCheckersRoom')){await tryReconnect()}else{await tryReconnectBot()}}}catch(e){openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`)}}
+
+// ---- ОБНОВЛЕНО: auth() сохраняет sessionToken в localStorage и очищает его при невалидности ----
+async function auth(){
+  try{
+    const j=await api('/api/auth',{method:'POST',body:JSON.stringify({})});
+
+    if(j.needsName){
+      // Токен оказался невалидным — чистим, чтобы не мешал
+      localStorage.removeItem('sani_checkers_token');
+      openModal(`<div class="auth-card"><div class="auth-logo">♛</div><h2>Добро пожаловать в SANI CHECKERS</h2><p>Введите никнейм.</p><input id="firstNick" maxlength="24" placeholder="Ваш никнейм"><button class="primary" id="createAccount">Создать игрока</button></div>`);
+      $('#createAccount').onclick=async()=>{
+        try{
+          const x=await api('/api/auth',{method:'POST',body:JSON.stringify({name:$('#firstNick').value})});
+          if(x.sessionToken)localStorage.setItem('sani_checkers_token',x.sessionToken);
+          me=x.user;store=x.store;closeModal();refreshHome();
+          tryReconnect();
+        }catch(e){openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`)}
+      };
+    } else {
+      // Сохраняем/обновляем токен, чтобы он жил даже если cookie потеряется
+      if(j.sessionToken)localStorage.setItem('sani_checkers_token',j.sessionToken);
+      me=j.user;store=j.store;refreshHome();
+      if(sessionStorage.getItem('saniCheckersRoom')){await tryReconnect()}
+      else{await tryReconnectBot()}
+    }
+  }catch(e){openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`)}
+}
 auth();

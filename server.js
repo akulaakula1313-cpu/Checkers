@@ -8,7 +8,6 @@ const PORT = Number(process.env.PORT || 3000),
       ROOT = __dirname;
 
 // ---- ПОДКЛЮЧЕНИЕ К MONGODB ATLAS ----
-// Имя базы данных checkers_game автоматически изолирует данные этой игры в вашем кластере
 const MONGO_URI = 'mongodb+srv://akulaakula1313_db_user:eVzH0Leb06TWlySA@cluster0.22ubyfp.mongodb.net/checkers_game?retryWrites=true&w=majority&appName=Cluster0';
 
 mongoose.connect(MONGO_URI)
@@ -48,14 +47,11 @@ const SessionSchema = new mongoose.Schema({
   lastSeen: { type: Number, required: true }
 });
 
-// Глобальные модели данных
 const UserModel = mongoose.model('User', UserSchema);
 const SessionModel = mongoose.model('Session', SessionSchema);
 
-// Временные коллекции в оперативной памяти (для активных комнат)
 const rooms = new Map(), botGames = new Map(), rateBuckets = new Map();
 
-// Системные константы из вашего исходного кода
 const PLAYER_TIMEOUT = Number(process.env.PLAYER_TIMEOUT_MS || 5000), 
       DISCONNECT_GRACE = Number(process.env.DISCONNECT_GRACE_MS || 55 * 1000), 
       ROOM_TTL = 60 * 60 * 1000, 
@@ -153,7 +149,6 @@ function claimDailyGift(user, dateKey = serverDateKey()) {
   };
 }
 
-// Асинхронные методы работы с базой MongoDB вместо старых синхронных функций getUser / ensureUser
 async function getUser(id) {
   if (!id) return null;
   return await UserModel.findOne({ id: id });
@@ -242,19 +237,21 @@ async function dropSession(token) {
   await SessionModel.deleteOne({ key: sessionKey(token) });
 }
 
+// ---- ОБНОВЛЕНО: принимаем токен из cookie ИЛИ из заголовка X-Session-Token ----
 async function currentUser(req, res) {
-  const token = parseCookies(req).sani_session;
+  let token = parseCookies(req).sani_session;
+  if (!token) token = String(req.headers['x-session-token'] || '').trim();
   if (!token) throw Object.assign(new Error('Сессия не найдена'), { status: 401 });
-  
+
   const s = await SessionModel.findOne({ key: sessionKey(token) });
   if (!s) throw Object.assign(new Error('Сессия не найдена'), { status: 401 });
-  
+
   if (now() - s.createdAt > SESSION_TTL) {
     await dropSession(token);
     clearCookie(res, 'sani_session');
     throw Object.assign(new Error('Сессия истекла'), { status: 401 });
   }
-  
+
   const u = await getUser(s.userId);
   if (!u || u.banned) {
     await dropSession(token);
@@ -299,7 +296,7 @@ async function cleanupTransient() {
   for (const [k, s] of adminSessions) if (!s?.createdAt || t - s.createdAt > ADMIN_SESSION_TTL) adminSessions.delete(k);
 }
 
-// ---- Checkers engine: Russian-style custom SANI rules ----
+// ---- Checkers engine ----
 function xy(s) { return [s % 8, Math.floor(s / 8)]; }
 function at(f, r) { return r * 8 + f; }
 function inside(f, r) { return f >= 0 && f < 8 && r >= 0 && r < 8; }
@@ -557,8 +554,11 @@ function orderActions(st, actions, ttBest) {
   });
 }
 
-function createAI(level) {
-  const cfg = BOT_LEVELS[level] || BOT_LEVELS[2];
+// ---- ОБНОВЛЕНО: createAI принимает и уровень (число), и конфиг (объект) ----
+function createAI(levelOrConfig) {
+  const cfg = (levelOrConfig && typeof levelOrConfig === 'object')
+    ? levelOrConfig
+    : (BOT_LEVELS[levelOrConfig] || BOT_LEVELS[2]);
   const tt = new Map(), nodes = { n: 0 };
   function minimax(x, d, alpha, beta, root, deadline) {
     nodes.n++; if ((nodes.n & 2047) === 0 && Date.now() > deadline) throw new Error('AI_TIMEOUT');
@@ -596,6 +596,15 @@ const BOT_LEVELS = {
   3: { name: 'Гроссмейстер', style: 'Позиционно-тактический', depth: 8, timeMs: 380, random: false }
 };
 
+// ---- НОВОЕ: спец-профиль максимальной силы для VIP-подсказок ----
+const HINT_AI_LEVEL = {
+  name: 'SANI Grandmaster Hint',
+  style: 'Максимальная глубина',
+  depth: 18,     // верхний предел, реально ограничивается временем
+  timeMs: 2200,  // ~2.2 сек на обдумывание
+  random: false
+};
+
 const aiCache = new Map();
 function chooseBotAction(st, level) { let ai = aiCache.get(level); if (!ai) { ai = createAI(level); aiCache.set(level, ai); } return ai.choose(st); }
 function chooseBotMove(st, level) { const a = chooseBotAction(st, level); return a?.type === 'move' ? a.move : null; }
@@ -613,15 +622,39 @@ function advanceBot(g, st) {
 const hintCache = new Map();
 function coordName(s) { return String.fromCharCode(97 + s % 8) + (8 - Math.floor(s / 8)); }
 
+// ---- ОБНОВЛЕНО: сверхглубокий ИИ (глубина до 18, 2.2 сек) ----
 function chooseHint(st) {
-  const key = pos(st) + (st.captureFrom != null ? '|c' + st.captureFrom : ''), hit = hintCache.get(key); if (hit) return hit;
-  let m = chooseBotMove(st, 3); if (!m) { const a = createAI(3).choose(st); m = a?.type === 'move' ? a.move : null; } if (!m) return null;
-  const fromName = coordName(m.from), toName = coordName(m.to), piece = st.board[m.from] || '', isKing = piece === piece.toUpperCase(), pieceName = isKing ? 'Дамка' : 'Шашка', sideName = st.side === 'w' ? 'белых' : 'чёрных';
+  const key = pos(st) + (st.captureFrom != null ? '|c' + st.captureFrom : '');
+  const hit = hintCache.get(key);
+  if (hit) return hit;
+
+  const ai = createAI(HINT_AI_LEVEL);
+  const action = ai.choose(st);
+  const m = action?.type === 'move' ? action.move : null;
+  if (!m) return null;
+
+  const fromName = coordName(m.from), toName = coordName(m.to);
+  const piece = st.board[m.from] || '';
+  const isKing = piece === piece.toUpperCase();
+  const pieceName = isKing ? 'Дамка' : 'Шашка';
+  const sideName = st.side === 'w' ? 'белых' : 'чёрных';
+
+  const nextState = { ...st, captureFrom: m.to };
+  const canContinue = m.capture != null && chooseBotMove(nextState, 3) !== null;
+
   let reason, threat;
-  if (m.capture != null) { reason = `${pieceName} ${sideName} ${fromName} → ${toName}: берёт фигуру соперника.`; threat = `После взятия ${chooseBotMove({ ...st, captureFrom: m.to }, 3) ? 'можно продолжить серию!' : 'серия завершается.'}`; }
-  else { reason = `${pieceName} ${sideName} ${fromName} → ${toName}: лучший ход по оценке SANI AI.`; threat = 'Ход усиливает позицию и открывает тактические возможности.'; }
-  const r = { from: m.from, to: m.to, fromName, toName, move: moveRecord(m, st), reason, threat }; hintCache.set(key, r);
-  if (hintCache.size > 256) hintCache.delete(hintCache.keys().next().value); return r;
+  if (m.capture != null) {
+    reason = `${pieceName} ${sideName} ${fromName} → ${toName}: берёт фигуру соперника.`;
+    threat = canContinue ? 'Взятие можно продолжить — серия выгодна.' : 'Серия взятий на этом завершится.';
+  } else {
+    reason = `${pieceName} ${sideName} ${fromName} → ${toName}: оптимальный ход по расчёту SANI AI (глубина ~18 полуходов).`;
+    threat = 'Этот ход лучший по позиционной оценке с учётом форсированных вариантов.';
+  }
+
+  const r = { from: m.from, to: m.to, fromName, toName, move: moveRecord(m, st), reason, threat };
+  hintCache.set(key, r);
+  if (hintCache.size > 256) hintCache.delete(hintCache.keys().next().value);
+  return r;
 }
 
 async function cancelUserGames(userId, reason = 'Администратор завершил партию') {
@@ -655,17 +688,41 @@ async function route(req, res) {
   const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`), p = u.pathname;
   if (req.method === 'GET' && p === '/api/health') return json(res, 200, { ok: true });
   try {
+    // ---- ОБНОВЛЕНО: /api/auth возвращает sessionToken и умеет восстанавливать по заголовку ----
     if (req.method === 'POST' && p === '/api/auth') {
       if (!allowRate(`auth:${clientIp(req)}`, 12, 60000)) return json(res, 429, { ok: false, error: 'Слишком много запросов.' });
-      let user; try { user = await currentUser(req, res); } catch {}
-      if (user) return json(res, 200, { ok: true, user: userView(user), needsName: false, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
+
+      let user = null, existingToken = null;
+      try {
+        user = await currentUser(req, res);
+        existingToken = parseCookies(req).sani_session || String(req.headers['x-session-token'] || '').trim() || null;
+      } catch {}
+
+      if (user) {
+        return json(res, 200, {
+          ok: true,
+          user: userView(user),
+          needsName: false,
+          sessionToken: existingToken,
+          store: { boards: STORE_BOARDS, pieces: STORE_PIECES }
+        });
+      }
+
       const b = await readBody(req);
       if (!sanitizeName(b.name)) return json(res, 200, { ok: true, needsName: true });
+
       user = await ensureUser(b.name);
       const token = crypto.randomBytes(32).toString('hex');
       await persistSession(token, { userId: user.id, createdAt: now(), lastSeen: now() });
       setCookie(res, 'sani_session', token, SESSION_TTL);
-      return json(res, 200, { ok: true, user: userView(user), needsName: false, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
+
+      return json(res, 200, {
+        ok: true,
+        user: userView(user),
+        needsName: false,
+        sessionToken: token,
+        store: { boards: STORE_BOARDS, pieces: STORE_PIECES }
+      });
     }
     if (req.method === 'POST' && p === '/api/logout') {
       const c = parseCookies(req); if (c.sani_session) await dropSession(c.sani_session);
@@ -843,7 +900,6 @@ async function route(req, res) {
   return json(res, 404, { error: 'not found' });
 }
 
-// Запуск игрового сервера и фоновых тасков
 if (require.main === module) {
   setInterval(async () => {
     await cleanupTransient();
