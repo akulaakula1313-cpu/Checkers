@@ -9,8 +9,7 @@ const PORT = Number(process.env.PORT || 3000),
 
 // ---- ПОДКЛЮЧЕНИЕ К MONGODB ATLAS ----
 // Имя базы данных checkers_game автоматически изолирует данные этой игры в вашем кластере
-const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
-if (!MONGO_URI) throw new Error('MONGODB_URI не задан. Укажите строку подключения MongoDB Atlas в переменных окружения.');
+const MONGO_URI = 'mongodb+srv://akulaakula1313_db_user:eVzH0Leb06TWlySA@cluster0.22ubyfp.mongodb.net/checkers_game?retryWrites=true&w=majority&appName=Cluster0';
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log('SANI DB: Успешно подключено к облаку MongoDB Atlas!'))
@@ -19,9 +18,9 @@ mongoose.connect(MONGO_URI)
 // ---- ОПРЕДЕЛЕНИЕ СХЕМ ДАННЫХ MONGODB ----
 const UserSchema = new mongoose.Schema({
   id: { type: String, unique: true, required: true },
+  recoveryHash: { type: String, unique: true, sparse: true, index: true },
   name: { type: String, required: true },
   nameHistory: [String],
-  recoveryHash: { type: String, unique: true, sparse: true, index: true },
   chips: { type: Number, default: 100000 },
   inventory: {
     boards: { type: [String], default: ['classic'] },
@@ -170,14 +169,13 @@ async function uniqueName(name, except = null) {
   return collision ? '' : n;
 }
 
-async function ensureUser(name, recoveryHash) {
+async function ensureUser(name) {
   const n = await uniqueName(name);
   if (!n) throw Error('Никнейм уже занят или некорректен');
   const u = new UserModel({
     id: uid(),
     name: n,
     nameHistory: [n],
-    recoveryHash,
     chips: 100000,
     inventory: { boards: ['classic'], pieces: ['classic'], selectedBoard: 'classic', selectedPieces: 'classic' },
     vip: false,
@@ -235,6 +233,21 @@ function sessionKey(t) { return crypto.createHash('sha256').update(String(t)).di
 function recoveryKey(t) { return crypto.createHash('sha256').update(`SANI_RECOVERY:${String(t)}`).digest('hex'); }
 function newRecoveryToken() { return crypto.randomBytes(32).toString('hex'); }
 
+async function issueSession(res, user, recoveryToken = null) {
+  const sessionToken = crypto.randomBytes(32).toString('hex');
+  await persistSession(sessionToken, { userId: user.id, createdAt: now(), lastSeen: now() });
+  setCookie(res, 'sani_session', sessionToken, SESSION_TTL);
+  if (recoveryToken) setCookie(res, 'sani_recovery', recoveryToken, SESSION_TTL);
+  return sessionToken;
+}
+
+async function recoverUserByToken(token) {
+  if (!token || typeof token !== 'string' || token.length < 40) return null;
+  const u = await UserModel.findOne({ recoveryHash: recoveryKey(token) });
+  if (!u || u.banned) return null;
+  return u;
+}
+
 async function persistSession(token, rec) {
   await SessionModel.findOneAndUpdate(
     { key: sessionKey(token) },
@@ -247,30 +260,19 @@ async function dropSession(token) {
   await SessionModel.deleteOne({ key: sessionKey(token) });
 }
 
-async function issueSession(res, user, recoveryToken) {
-  const token = crypto.randomBytes(32).toString('hex');
-  await persistSession(token, { userId: user.id, createdAt: now(), lastSeen: now() });
-  setCookie(res, 'sani_session', token, SESSION_TTL);
-  if (recoveryToken) setCookie(res, 'sani_recovery', recoveryToken, SESSION_TTL);
-  return token;
-}
-
-async function recoverUserByToken(token) {
-  if (!token) return null;
-  const hash = recoveryKey(token);
-  return await UserModel.findOne({ recoveryHash: hash });
-}
-
 async function currentUser(req, res) {
   const token = parseCookies(req).sani_session;
   if (!token) throw Object.assign(new Error('Сессия не найдена'), { status: 401 });
+  
   const s = await SessionModel.findOne({ key: sessionKey(token) });
   if (!s) throw Object.assign(new Error('Сессия не найдена'), { status: 401 });
+  
   if (now() - s.createdAt > SESSION_TTL) {
     await dropSession(token);
     clearCookie(res, 'sani_session');
     throw Object.assign(new Error('Сессия истекла'), { status: 401 });
   }
+  
   const u = await getUser(s.userId);
   if (!u || u.banned) {
     await dropSession(token);
@@ -627,126 +629,17 @@ function advanceBot(g, st) {
 }
 
 const hintCache = new Map();
-const VIP_HINT_TIME_MS = Number(process.env.VIP_HINT_TIME_MS || 2200);
-const VIP_HINT_MAX_DEPTH = Number(process.env.VIP_HINT_MAX_DEPTH || 14);
-
 function coordName(s) { return String.fromCharCode(97 + s % 8) + (8 - Math.floor(s / 8)); }
-function vipSideScore(st, side) {
-  let material = 0, kings = 0, advance = 0, center = 0, mobility = 0, threats = 0, back = 0;
-  for (let i = 0; i < 64; i++) {
-    const p = st.board[i]; if (!p || sideOf(p) !== side) continue;
-    const [f,r] = xy(i), king = p === p.toUpperCase();
-    material += king ? 520 : 100;
-    if (king) kings++;
-    else advance += side === 'w' ? r * 15 : (7-r) * 15;
-    center += Math.max(0, 4 - Math.abs(f-3.5) - Math.abs(r-3.5)) * (king ? 7 : 4);
-    const cm = captureMovesFor(st,i).length, qm = quietMovesFor(st,i).length;
-    mobility += cm * 18 + qm * 4;
-    threats += cm ? 28 : 0;
-    if ((!king && ((side === 'w' && r === 7) || (side === 'b' && r === 0)))) back += 9;
-  }
-  return material + kings*55 + advance + center + mobility + threats + back;
-}
-function vipEval(st, root) {
-  const opp = enemy(root);
-  const my = vipSideScore(st, root), his = vipSideScore(st, opp);
-  const lm = legalMoves(st).length;
-  const forced = lm && legalMoves(st).some(m=>m.capture!=null) ? 1 : 0;
-  const rootToMove = st.side === root ? 1 : -1;
-  return (my-his) + rootToMove*(lm*9 + forced*16);
-}
-function vipMoveScore(st, a, ttBest, killerSet) {
-  const m=a.move, p=st.board[m.from]||'', captured=m.capture==null?null:st.board[m.capture];
-  let s=0;
-  if (actionKey(a)===ttBest) s+=1000000;
-  if (m.capture!=null) s+=10000+(captured&&captured===captured.toUpperCase()?1600:500);
-  if (p===p.toUpperCase()) s+=120;
-  const beforeKing=p===p.toUpperCase(), rr=Math.floor(m.to/8);
-  if (!beforeKing && ((p==='w'&&rr===7)||(p==='b'&&rr===0))) s+=1400;
-  if (killerSet?.has(actionKey(a))) s+=800;
-  return s;
-}
-function createVipHintAI() {
-  const tt=new Map(), killers=new Map(), nodes={n:0}, deadline=Date.now()+VIP_HINT_TIME_MS;
-  function check(){ if((++nodes.n & 2047)===0 && Date.now()>deadline) throw new Error('VIP_HINT_TIMEOUT'); }
-  function qsearch(x, alpha, beta, root, qd) {
-    check();
-    const winner=gameStatus(x); if(winner) return winner===root?100000000:-100000000;
-    const stand=vipEval(x,root), maximizing=x.side===root;
-    if(qd<=0 || !legalMoves(x).some(m=>m.capture!=null)) return stand;
-    if(maximizing){
-      if(stand>=beta)return stand; if(stand>alpha)alpha=stand;
-    }else{
-      if(stand<=alpha)return stand; if(stand<beta)beta=stand;
-    }
-    const caps=legalMoves(x).filter(m=>m.capture!=null).map(move=>({type:'move',move}));
-    caps.sort((a,b)=>vipMoveScore(x,b,null,null)-vipMoveScore(x,a,null,null));
-    for(const a of caps){
-      const v=qsearch(applyAIAction(x,a),alpha,beta,root,qd-1);
-      if(maximizing){if(v>alpha)alpha=v;if(alpha>=beta)break;}
-      else{if(v<beta)beta=v;if(alpha>=beta)break;}
-    }
-    return maximizing?alpha:beta;
-  }
-  function search(x,d,alpha,beta,root) {
-    check();
-    const winner=gameStatus(x); if(winner) return winner===root?100000000+d:-100000000-d;
-    if(d<=0) return qsearch(x,alpha,beta,root,4);
-    const key=pos(x)+'|'+d+'|'+(x.captureFrom==null?'':'c'+x.captureFrom), hit=tt.get(key);
-    if(hit && hit.depth>=d) return hit.value;
-    let actions=aiActions(x); if(!actions.length)return x.side===root?-100000000:100000000;
-    const ttBest=hit?.best||null, ply=VIP_HINT_MAX_DEPTH-d, ks=killers.get(ply);
-    actions.sort((a,b)=>vipMoveScore(x,b,ttBest,ks)-vipMoveScore(x,a,ttBest,ks));
-    const maximizing=x.side===root;
-    let best=maximizing?-Infinity:Infinity,bestKey=null;
-    for(const a of actions){
-      const v=search(applyAIAction(x,a),d-1,alpha,beta,root);
-      if(maximizing){
-        if(v>best){best=v;bestKey=actionKey(a);} if(v>alpha)alpha=v;
-      }else{
-        if(v<best){best=v;bestKey=actionKey(a);} if(v<beta)beta=v;
-      }
-      if(alpha>=beta){
-        if(a.move.capture==null){let set=killers.get(ply);if(!set){set=new Set();killers.set(ply,set)}set.add(actionKey(a));if(set.size>3)set.delete(set.values().next().value);}
-        break;
-      }
-    }
-    tt.set(key,{depth:d,value:best,best:bestKey}); if(tt.size>120000)tt.delete(tt.keys().next().value);
-    return best;
-  }
-  function choose(st){
-    const root=st.side, actions=aiActions(st); if(!actions.length)return null;
-    let best=actions[0],bestScore=-Infinity,lastDepth=0;
-    for(let d=1;d<=VIP_HINT_MAX_DEPTH;d++){
-      try{
-        let local=best,score=-Infinity;
-        const ordered=actions.slice().sort((a,b)=>vipMoveScore(st,b,null,null)-vipMoveScore(st,a,null,null));
-        for(const a of ordered){
-          const v=search(applyAIAction(st,a),d-1,-Infinity,Infinity,root);
-          const sc=-v;
-          if(sc>score){score=sc;local=a;}
-        }
-        best=local;bestScore=score;lastDepth=d;
-        if(Math.abs(score)>=99900000)break;
-      }catch(e){if(e.message!=='VIP_HINT_TIMEOUT')throw e;break;}
-    }
-    return {action:best,score:bestScore,depth:lastDepth,nodes:nodes.n};
-  }
-  return {choose};
-}
 
 function chooseHint(st) {
-  const key=pos(st)+(st.captureFrom!=null?'|c'+st.captureFrom:''),hit=hintCache.get(key); if(hit)return hit;
-  const engine=createVipHintAI(), result=engine.choose(st), m=result?.action?.move; if(!m)return null;
-  const fromName=coordName(m.from),toName=coordName(m.to),piece=st.board[m.from]||'';
-  const pieceName=piece===piece.toUpperCase()?'Дамка':'Шашка', sideName=st.side==='w'?'белых':'чёрных';
-  const next=applyAIAction(st,{type:'move',move:m}), nextMoves=legalMoves(next), enemyCaps=nextMoves.filter(x=>x.capture!=null).length;
-  let reason;
-  if(m.capture!=null) reason=`${pieceName} ${sideName} ${fromName} → ${toName}: тактически сильнейшее продолжение — взятие с проверкой ответа соперника.`;
-  else reason=`${pieceName} ${sideName} ${fromName} → ${toName}: ход выбран глубоким VIP-поиском с учётом тактики, угроз, разменов и позиции после ответа соперника.`;
-  const threat=enemyCaps?`После этого у соперника есть ${enemyCaps} вариант(а) взятия — они заранее учитываются поиском.`:'Ход не отдаёт немедленного обязательного взятия и сохраняет максимум практических возможностей.';
-  const r={from:m.from,to:m.to,fromName,toName,move:moveRecord(m,st),reason,threat,depth:result.depth,nodes:result.nodes,engine:'SANI VIP SUPER HINT'};
-  hintCache.set(key,r); if(hintCache.size>512)hintCache.delete(hintCache.keys().next().value); return r;
+  const key = pos(st) + (st.captureFrom != null ? '|c' + st.captureFrom : ''), hit = hintCache.get(key); if (hit) return hit;
+  let m = chooseBotMove(st, 3); if (!m) { const a = createAI(3).choose(st); m = a?.type === 'move' ? a.move : null; } if (!m) return null;
+  const fromName = coordName(m.from), toName = coordName(m.to), piece = st.board[m.from] || '', isKing = piece === piece.toUpperCase(), pieceName = isKing ? 'Дамка' : 'Шашка', sideName = st.side === 'w' ? 'белых' : 'чёрных';
+  let reason, threat;
+  if (m.capture != null) { reason = `${pieceName} ${sideName} ${fromName} → ${toName}: берёт фигуру соперника.`; threat = `После взятия ${chooseBotMove({ ...st, captureFrom: m.to }, 3) ? 'можно продолжить серию!' : 'серия завершается.'}`; }
+  else { reason = `${pieceName} ${sideName} ${fromName} → ${toName}: лучший ход по оценке SANI AI.`; threat = 'Ход усиливает позицию и открывает тактические возможности.'; }
+  const r = { from: m.from, to: m.to, fromName, toName, move: moveRecord(m, st), reason, threat }; hintCache.set(key, r);
+  if (hintCache.size > 256) hintCache.delete(hintCache.keys().next().value); return r;
 }
 
 async function cancelUserGames(userId, reason = 'Администратор завершил партию') {
@@ -782,27 +675,51 @@ async function route(req, res) {
   try {
     if (req.method === 'POST' && p === '/api/auth') {
       if (!allowRate(`auth:${clientIp(req)}`, 12, 60000)) return json(res, 429, { ok: false, error: 'Слишком много запросов.' });
-      let user; try { user = await currentUser(req, res); } catch {}
+      const b = await readBody(req);
+      let user = null;
+      try { user = await currentUser(req, res); } catch {}
+
+      // If the normal session survived, make sure this account also has a durable recovery token.
       if (user) {
         let recoveryToken = null;
-        if (!user.recoveryHash) { recoveryToken = newRecoveryToken(); user.recoveryHash = recoveryKey(recoveryToken); user.updatedAt = now(); await user.save(); }
+        if (!user.recoveryHash) {
+          recoveryToken = newRecoveryToken();
+          user.recoveryHash = recoveryKey(recoveryToken);
+          user.updatedAt = now();
+          await user.save();
+        } else {
+          const existingRecovery = parseCookies(req).sani_recovery;
+          if (existingRecovery) {
+            const found = await recoverUserByToken(existingRecovery);
+            if (found && found.id === user.id) recoveryToken = existingRecovery;
+          }
+        }
+        if (!recoveryToken) {
+          recoveryToken = newRecoveryToken();
+          user.recoveryHash = recoveryKey(recoveryToken);
+          await user.save();
+        }
+        setCookie(res, 'sani_recovery', recoveryToken, SESSION_TTL);
         return json(res, 200, { ok: true, user: userView(user), needsName: false, recoveryToken, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
       }
-      const b = await readBody(req);
-      const cookieRecovery = parseCookies(req).sani_recovery;
-      const recoveryToken = String(b.recoveryToken || cookieRecovery || '');
+
+      // Durable recovery survives Render sleep/restart even when sani_session is gone.
+      const recoveryToken = String(b.recoveryToken || parseCookies(req).sani_recovery || '');
       if (recoveryToken) {
         user = await recoverUserByToken(recoveryToken);
-        if (user && !user.banned) {
+        if (user) {
           await issueSession(res, user, recoveryToken);
-          return json(res, 200, { ok: true, user: userView(user), needsName: false, recoveryToken, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
+          return json(res, 200, { ok: true, user: userView(user), needsName: false, recoveryToken, restored: true, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
         }
       }
+
       if (!sanitizeName(b.name)) return json(res, 200, { ok: true, needsName: true });
-      const recoveryForNewUser = newRecoveryToken();
-      user = await ensureUser(b.name, recoveryKey(recoveryForNewUser));
-      await issueSession(res, user, recoveryForNewUser);
-      return json(res, 200, { ok: true, user: userView(user), needsName: false, recoveryToken: recoveryForNewUser, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
+      user = await ensureUser(b.name);
+      const newRecovery = newRecoveryToken();
+      user.recoveryHash = recoveryKey(newRecovery);
+      await user.save();
+      await issueSession(res, user, newRecovery);
+      return json(res, 200, { ok: true, user: userView(user), needsName: false, recoveryToken: newRecovery, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
     }
     if (req.method === 'POST' && p === '/api/logout') {
       const c = parseCookies(req); if (c.sani_session) await dropSession(c.sani_session);

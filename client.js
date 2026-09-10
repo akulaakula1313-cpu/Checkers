@@ -103,25 +103,5 @@ if(localStorage.getItem('saniCheckersMusic')==='on'){
 }
 async function tryReconnect(){try{const saved=JSON.parse(sessionStorage.getItem('saniCheckersRoom')||'null');if(!saved)return;const j=await api('/api/room/reconnect',{method:'POST',body:JSON.stringify(saved)});online={room:j.room,uid:j.uid,side:j.self};position=j.room.position;captureFrom=j.room.captureFrom??null;mode='online';gameOverShown=false;$('#gameMode').textContent='ОНЛАЙН';$('#gameSub').textContent=`Стол ${j.room.id}`;$('#roomLabel').textContent=`Стол ${j.room.id}`;$('#onlineBar').hidden=false;showGame();startPoll()}catch{sessionStorage.removeItem('saniCheckersRoom')}}
 async function tryReconnectBot(){try{const saved=JSON.parse(sessionStorage.getItem('saniCheckersBot')||'null');if(!saved?.gameId)return;const j=await api(`/api/bot/state?gameId=${encodeURIComponent(saved.gameId)}`);if(j.status!=='playing'){sessionStorage.removeItem('saniCheckersBot');return}botGameId=j.gameId;botLevel=j.level;botStake=j.stake;position=j.position;captureFrom=j.captureFrom??null;me=j.user;mode='bot';$('#gameMode').textContent='ИГРА С БОТОМ';$('#gameSub').textContent=`${j.levelName}${j.levelStyle?` • ${j.levelStyle}`:''}${j.stake?` • ставка ${j.stake}`:''}`;$('#whiteName').textContent=me.name;$('#blackName').textContent='🤖 SANI AI';$('#onlineBar').hidden=true;showGame()}catch{sessionStorage.removeItem('saniCheckersBot')}}
-async function auth(){
-  try{
-    const recoveryToken=localStorage.getItem('saniCheckersRecovery')||'';
-    const j=await api('/api/auth',{method:'POST',body:JSON.stringify(recoveryToken?{recoveryToken}: {})});
-    if(j.recoveryToken)localStorage.setItem('saniCheckersRecovery',j.recoveryToken);
-    if(j.needsName){
-      openModal(`<div class="auth-card"><div class="auth-logo">♛</div><h2>Добро пожаловать в SANI CHECKERS</h2><p>Введите никнейм только для первого входа на этом устройстве.</p><input id="firstNick" maxlength="24" placeholder="Ваш никнейм"><button class="primary" id="createAccount">Создать игрока</button></div>`);
-      $('#createAccount').onclick=async()=>{
-        try{
-          const x=await api('/api/auth',{method:'POST',body:JSON.stringify({name:$('#firstNick').value,recoveryToken:localStorage.getItem('saniCheckersRecovery')||''})});
-          me=x.user;store=x.store;if(x.recoveryToken)localStorage.setItem('saniCheckersRecovery',x.recoveryToken);
-          closeModal();refreshHome();tryReconnect()
-        }catch(e){openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`)}
-      }
-    }else{
-      me=j.user;store=j.store;refreshHome();
-      if(sessionStorage.getItem('saniCheckersRoom')){await tryReconnect()}else{await tryReconnectBot()}
-    }
-  }catch(e){openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`)}
-}
-
+async function auth(){try{const recoveryToken=localStorage.getItem('saniCheckersRecovery')||'';const j=await api('/api/auth',{method:'POST',body:JSON.stringify({recoveryToken})});if(j.recoveryToken)localStorage.setItem('saniCheckersRecovery',j.recoveryToken);if(j.needsName){openModal(`<div class="auth-card"><div class="auth-logo">♛</div><h2>Добро пожаловать в SANI CHECKERS</h2><p>Введите никнейм.</p><input id="firstNick" maxlength="24" placeholder="Ваш никнейм"><button class="primary" id="createAccount">Создать игрока</button></div>`);$('#createAccount').onclick=async()=>{try{const x=await api('/api/auth',{method:'POST',body:JSON.stringify({name:$('#firstNick').value})});if(x.recoveryToken)localStorage.setItem('saniCheckersRecovery',x.recoveryToken);me=x.user;store=x.store;closeModal();refreshHome();tryReconnect()}catch(e){openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`)}}}else{me=j.user;store=j.store;refreshHome();if(sessionStorage.getItem('saniCheckersRoom')){await tryReconnect()}else{await tryReconnectBot()}}}catch(e){openModal(`<h2>Вход</h2><p>${esc(e.message)}</p>`)}}
 auth();
