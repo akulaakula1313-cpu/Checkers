@@ -18,7 +18,6 @@ mongoose.connect(MONGO_URI)
 // ---- ОПРЕДЕЛЕНИЕ СХЕМ ДАННЫХ MONGODB ----
 const UserSchema = new mongoose.Schema({
   id: { type: String, unique: true, required: true },
-  recoveryHash: { type: String, unique: true, sparse: true, index: true },
   name: { type: String, required: true },
   nameHistory: [String],
   chips: { type: Number, default: 100000 },
@@ -230,23 +229,6 @@ function setCookie(res, n, v, max) {
 function clearCookie(res, n) { setCookie(res, n, '', 0); }
 
 function sessionKey(t) { return crypto.createHash('sha256').update(String(t)).digest('hex'); }
-function recoveryKey(t) { return crypto.createHash('sha256').update(`SANI_RECOVERY:${String(t)}`).digest('hex'); }
-function newRecoveryToken() { return crypto.randomBytes(32).toString('hex'); }
-
-async function issueSession(res, user, recoveryToken = null) {
-  const sessionToken = crypto.randomBytes(32).toString('hex');
-  await persistSession(sessionToken, { userId: user.id, createdAt: now(), lastSeen: now() });
-  setCookie(res, 'sani_session', sessionToken, SESSION_TTL);
-  if (recoveryToken) setCookie(res, 'sani_recovery', recoveryToken, SESSION_TTL);
-  return sessionToken;
-}
-
-async function recoverUserByToken(token) {
-  if (!token || typeof token !== 'string' || token.length < 40) return null;
-  const u = await UserModel.findOne({ recoveryHash: recoveryKey(token) });
-  if (!u || u.banned) return null;
-  return u;
-}
 
 async function persistSession(token, rec) {
   await SessionModel.findOneAndUpdate(
@@ -675,51 +657,15 @@ async function route(req, res) {
   try {
     if (req.method === 'POST' && p === '/api/auth') {
       if (!allowRate(`auth:${clientIp(req)}`, 12, 60000)) return json(res, 429, { ok: false, error: 'Слишком много запросов.' });
+      let user; try { user = await currentUser(req, res); } catch {}
+      if (user) return json(res, 200, { ok: true, user: userView(user), needsName: false, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
       const b = await readBody(req);
-      let user = null;
-      try { user = await currentUser(req, res); } catch {}
-
-      // If the normal session survived, make sure this account also has a durable recovery token.
-      if (user) {
-        let recoveryToken = null;
-        if (!user.recoveryHash) {
-          recoveryToken = newRecoveryToken();
-          user.recoveryHash = recoveryKey(recoveryToken);
-          user.updatedAt = now();
-          await user.save();
-        } else {
-          const existingRecovery = parseCookies(req).sani_recovery;
-          if (existingRecovery) {
-            const found = await recoverUserByToken(existingRecovery);
-            if (found && found.id === user.id) recoveryToken = existingRecovery;
-          }
-        }
-        if (!recoveryToken) {
-          recoveryToken = newRecoveryToken();
-          user.recoveryHash = recoveryKey(recoveryToken);
-          await user.save();
-        }
-        setCookie(res, 'sani_recovery', recoveryToken, SESSION_TTL);
-        return json(res, 200, { ok: true, user: userView(user), needsName: false, recoveryToken, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
-      }
-
-      // Durable recovery survives Render sleep/restart even when sani_session is gone.
-      const recoveryToken = String(b.recoveryToken || parseCookies(req).sani_recovery || '');
-      if (recoveryToken) {
-        user = await recoverUserByToken(recoveryToken);
-        if (user) {
-          await issueSession(res, user, recoveryToken);
-          return json(res, 200, { ok: true, user: userView(user), needsName: false, recoveryToken, restored: true, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
-        }
-      }
-
       if (!sanitizeName(b.name)) return json(res, 200, { ok: true, needsName: true });
       user = await ensureUser(b.name);
-      const newRecovery = newRecoveryToken();
-      user.recoveryHash = recoveryKey(newRecovery);
-      await user.save();
-      await issueSession(res, user, newRecovery);
-      return json(res, 200, { ok: true, user: userView(user), needsName: false, recoveryToken: newRecovery, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
+      const token = crypto.randomBytes(32).toString('hex');
+      await persistSession(token, { userId: user.id, createdAt: now(), lastSeen: now() });
+      setCookie(res, 'sani_session', token, SESSION_TTL);
+      return json(res, 200, { ok: true, user: userView(user), needsName: false, store: { boards: STORE_BOARDS, pieces: STORE_PIECES } });
     }
     if (req.method === 'POST' && p === '/api/logout') {
       const c = parseCookies(req); if (c.sani_session) await dropSession(c.sani_session);
